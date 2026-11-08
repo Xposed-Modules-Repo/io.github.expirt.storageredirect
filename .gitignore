@@ -1,0 +1,39 @@
+# Built outputs & temporary build artifacts
+build/
+bin/
+gen/
+out/
+*.class
+
+# Android / Keystore files
+*.jks
+*.keystore
+*.apk
+*.ap_
+*.dex
+
+# Gradle / Android Studio / IntelliJ IDEA
+.gradle/
+.idea/
+*.iml
+*.iws
+*.ipr
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Eclipse (if applicable)
+.settings/
+.project
+.classpath
+
+# OS / System-generated files
+.DS_Store
+Thumbs.db
+*.swp
+*~
+*.bak
+
+# Local Configuration / Logs
+local.properties
+*.log
