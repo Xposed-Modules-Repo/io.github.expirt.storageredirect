@@ -307,37 +307,6 @@ public class PathEngine {
         // Sort rules by specificity (longest prefix first)
         Collections.sort(parsed);
         rules.addAll(parsed);
-
-        // Safely initialize destinations where possible without dropping rules on failure
-        initializeDestinations();
-    }
-
-    private void initializeDestinations() {
-        for (PathRule rule : rules) {
-            try {
-                if (!rule.destination.contains("{")) {
-                    File dest = new File(rule.destination);
-                    if (rule.isDirectoryRule) {
-                        ensureDirInternal(dest);
-                    } else {
-                        File parent = dest.getParentFile();
-                        if (parent != null) {
-                            ensureDirInternal(parent);
-                        }
-                    }
-                } else {
-                    String prefix = guardOf(rule.destination);
-                    if (prefix != null) {
-                        ensureDirInternal(new File(prefix));
-                    }
-                }
-            } catch (Throwable t) {
-                // NEVER discard rules because destination cannot yet be created
-                if (debug && logger != null) {
-                    logger.log("INIT_DEST", rule.source, rule.destination, rule.toString(), false, t.getMessage());
-                }
-            }
-        }
     }
 
     private static String guardOf(String to) {
