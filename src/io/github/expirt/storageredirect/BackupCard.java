@@ -380,8 +380,8 @@ final class BackupCard {
             info(it.name, "This backup file cannot be restored: " + t.getMessage());
             return;
         }
-        if (info.pkg != null && !info.pkg.equals(pkg)) {
-            info(it.name, "This backup belongs to " + info.pkg + ", not " + pkg + ".");
+        if (info.pkg == null || !info.pkg.equals(pkg)) {
+            info(it.name, "This backup belongs to " + (info.pkg != null ? info.pkg : "unknown") + ", not " + pkg + ".");
             return;
         }
         if (info.sources.isEmpty()) {

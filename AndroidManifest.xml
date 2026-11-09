@@ -4,14 +4,41 @@
     android:versionCode="17"
     android:versionName="2.15">
     <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="33" />
+    <!--
+      MANAGE_EXTERNAL_STORAGE (Android 11+ / API 30+):
+      Required for the module configuration UI and backup manager to read, write, create,
+      and list directories across shared storage (/storage/emulated/0), including the fixed
+      configuration directory (/storage/emulated/0/Android/media/uninviting), custom redirect
+      target directories, and per-app backup archives. Without All-Files Access, Android Scoped
+      Storage restricts file operations to media-only stores and blocks custom path creation.
+    -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+    <!--
+      QUERY_ALL_PACKAGES (Android 11+ / API 30+):
+      Required for MainActivity to enumerate installed applications on the device, display
+      their labels and launcher icons, and allow users to select applications for per-app
+      redirection rules and backup management. On API 30+, package visibility filtering hides
+      non-system apps from PackageManager queries unless this permission is declared.
+    -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+
+    <!--
+      READ_EXTERNAL_STORAGE & WRITE_EXTERNAL_STORAGE (Android 5.0 - 10 / API 21 - 29):
+      Required for backward compatibility on legacy Android releases where MANAGE_EXTERNAL_STORAGE
+      does not exist. Scoped to maxSdkVersion="29" so that devices on API 30+ rely exclusively
+      on MANAGE_EXTERNAL_STORAGE without requesting redundant runtime permissions.
+    -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+
     <application
         android:label="Storage Redirect"
         android:icon="@drawable/ic_launcher"
         android:allowBackup="false"
+        android:requestLegacyExternalStorage="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
         <activity
             android:name=".MainActivity"

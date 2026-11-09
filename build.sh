@@ -16,7 +16,18 @@ fi
 
 DX="${DX_JAR:-/usr/share/java/com.android.dx.jar}"
 KS="${KEYSTORE:-/storage/emulated/0/sign/x.p12}"
-KS_PASS="${KEYSTORE_PASS:-123456}"
+KS_PASS="${KEYSTORE_PASS:-}"
+if [ -z "$KS_PASS" ]; then
+  if [ -t 0 ]; then
+    read -s -r -p "Enter keystore password: " KS_PASS
+    echo >&2
+  else
+    echo "ERROR: KEYSTORE_PASS environment variable is not set." >&2
+    echo "For non-interactive or automated builds, set KEYSTORE_PASS before running build.sh." >&2
+    exit 1
+  fi
+fi
+KEY_PASS="${KEY_PASS:-$KS_PASS}"
 KS_ALIAS="${KEY_ALIAS:-a}"
 
 # Extract version from AndroidManifest.xml
@@ -52,8 +63,10 @@ if [ ! -f "$KS" ]; then
 fi
 
 FINAL_APK="$REL_DIR/${APP_NAME}-v${VER}.apk"
-apksigner sign --ks "$KS" --ks-pass "pass:$KS_PASS" --ks-key-alias "$KS_ALIAS" --key-pass "pass:$KS_PASS" \
+set +x 2>/dev/null || true
+apksigner sign --ks "$KS" --ks-pass "pass:$KS_PASS" --ks-key-alias "$KS_ALIAS" --key-pass "pass:$KEY_PASS" \
   --min-sdk-version 21 --out "$FINAL_APK" "$OUT/aligned.apk"
+unset KS_PASS KEY_PASS
 apksigner verify "$FINAL_APK"
 
 # Keep both release/ and releases/ directories synchronized

@@ -476,6 +476,8 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
                     new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) {
+                            if (Boolean.TRUE.equals(sInHook.get())) return;
+                            sInHook.set(Boolean.TRUE);
                             try {
                                 File f = resolve(code, param);
                                 if (f == null) return;
@@ -487,6 +489,8 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
                                 param.setResult(kind == Kind.DIRS ? new File[]{shown} : shown);
                             } catch (Throwable t) {
                                 XposedBridge.log(t);
+                            } finally {
+                                sInHook.set(Boolean.FALSE);
                             }
                         }
                     });
@@ -566,6 +570,7 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
 
     /** Maps a standard path to its real location; anything else is returned unchanged. */
     static String rewrite(String p) {
+        if (p == null || p.isEmpty() || p.indexOf('\0') >= 0) return p;
         checkFreshness();
         ActiveState state = sState;
         if (state == null || !state.active) return p;
@@ -575,6 +580,7 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
 
     /** What the I/O sinks use: the path rules always, the standard-path table only in fake mode. */
     static String sinkRewrite(String p) {
+        if (p == null || p.isEmpty() || p.indexOf('\0') >= 0) return p;
         checkFreshness();
         ActiveState state = sState;
         if (state == null || !state.active) return p;

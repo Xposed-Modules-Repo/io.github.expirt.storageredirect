@@ -240,6 +240,9 @@ final class Backups {
             Info in = new Info();
             try { in.format = Integer.parseInt(p.getProperty("format", "1").trim()); } catch (Throwable ignored) { }
             in.pkg = p.getProperty("package");
+            if (!RedirectConfig.isValidPackageName(in.pkg)) {
+                throw new IOException("Untrusted or invalid package name in backup: " + in.pkg);
+            }
             in.app = p.getProperty("app");
             in.version = p.getProperty("version");
             in.created = p.getProperty("created");
@@ -260,23 +263,97 @@ final class Backups {
      * Returns null if cancelled (the restore is then incomplete).
      */
     static Result restore(File zip, Info info, boolean clean, String sdRoot, Progress p) throws IOException {
+        if (info == null) throw new IOException("Null backup metadata");
+        if (!RedirectConfig.isValidPackageName(info.pkg)) {
+            throw new IOException("Untrusted or invalid package in backup: " + (info != null ? info.pkg : "null"));
+        }
+        if (info.sources.isEmpty()) throw new IOException("This backup has no folder information");
+
+        File canonicalSd = new File(sdRoot).getCanonicalFile();
+        String sd = canonicalSd.getPath();
+        File canonicalZip = zip.getCanonicalFile();
+        String zp = canonicalZip.getPath();
+
         Map<String, File> targets = new LinkedHashMap<>();
         for (Map.Entry<String, String> e : info.sources.entrySet()) {
-            File t = new File(e.getValue());
-            if (!t.isAbsolute()) throw new IOException("Bad path in backup: " + e.getValue());
-            targets.put(e.getKey(), t);
+            String kind = e.getKey();
+            if (kind == null || !kind.matches("^[a-zA-Z0-9_-]+$")) {
+                throw new IOException("Invalid source identifier in backup: " + kind);
+            }
+            String pathStr = e.getValue();
+            if (pathStr == null || pathStr.trim().isEmpty()) {
+                throw new IOException("Empty path in backup metadata for " + kind);
+            }
+            if (pathStr.indexOf('\0') >= 0 || pathStr.contains("..") || pathStr.contains("\\")) {
+                throw new IOException("Illegal characters or traversal in backup path: " + pathStr);
+            }
+            File t = new File(pathStr.trim());
+            if (!t.isAbsolute()) {
+                throw new IOException("Bad path in backup (must be absolute): " + pathStr);
+            }
+            File canonicalTarget = t.getCanonicalFile();
+            String tp = canonicalTarget.getPath();
+
+            // 1. Never target the storage root itself or any of its parents
+            if (tp.equals(sd) || sd.startsWith(tp + File.separator)) {
+                throw new IOException("Won't target " + tp + " (it contains or equals the storage root)");
+            }
+            // 2. Never target the directory containing this backup or the backup itself
+            if (zp.equals(tp) || zp.startsWith(tp + File.separator)) {
+                throw new IOException("Won't target " + tp + " (it contains or is this backup archive)");
+            }
+            // 3. Never target system directories or root
+            if (tp.equals("/") || tp.startsWith("/system") || tp.startsWith("/vendor")
+                    || tp.startsWith("/apex") || tp.startsWith("/etc") || tp.startsWith("/dev")
+                    || tp.startsWith("/proc") || tp.startsWith("/sys") || tp.startsWith("/data/system")
+                    || tp.startsWith("/data/misc") || tp.startsWith("/data/local")) {
+                throw new SecurityException("Target path in unauthorized system directory: " + tp);
+            }
+            // 4. Never target module configuration directories
+            if (tp.startsWith(sd + "/Android/media/uninviting") || tp.startsWith(sd + "/CustomData/.config")) {
+                throw new SecurityException("Target path in module configuration directory: " + tp);
+            }
+            // 5. Must reside in approved application storage directories
+            boolean inSd = tp.startsWith(sd + File.separator);
+            if (inSd) {
+                // Cannot be root Android data container directories
+                if (tp.equals(sd + "/Android") || tp.equals(sd + "/Android/data")
+                        || tp.equals(sd + "/Android/obb") || tp.equals(sd + "/Android/media")) {
+                    throw new SecurityException("Target cannot be a root Android data container: " + tp);
+                }
+            } else {
+                // If not in shared storage, it must be inside the application's private directory
+                String privData = "/data/data/" + info.pkg;
+                String privUser0 = "/data/user/0/" + info.pkg;
+                boolean inAppPrivate = (tp.equals(privData) || tp.startsWith(privData + File.separator)
+                        || tp.equals(privUser0) || tp.startsWith(privUser0 + File.separator));
+                if (!inAppPrivate) {
+                    throw new SecurityException("Target path outside approved storage directories: " + tp);
+                }
+            }
+
+            if (isSymbolicLink(canonicalTarget)) {
+                throw new SecurityException("Target directory cannot be a symbolic link: " + tp);
+            }
+
+            targets.put(kind, canonicalTarget);
         }
-        if (targets.isEmpty()) throw new IOException("This backup has no folder information");
 
         if (clean) {
-            String sd = new File(sdRoot).getCanonicalPath();
-            String zp = zip.getCanonicalPath();
+            // Validate all targets before performing any destructive operation
             for (File t : targets.values()) {
-                String tp = t.getCanonicalPath();
-                if (sameOrInside(tp, sd) || sameOrInside(tp, zp))
-                    throw new IOException("Won't clear " + tp + " (it contains the storage root or this backup)");
+                if (t.exists()) {
+                    if (!t.isDirectory()) {
+                        throw new IOException("Target to clean is not a directory: " + t.getPath());
+                    }
+                    if (isSymbolicLink(t)) {
+                        throw new IOException("Target to clean is a symbolic link: " + t.getPath());
+                    }
+                }
             }
-            for (File t : targets.values()) deleteChildren(t);
+            for (File t : targets.values()) {
+                deleteChildren(t);
+            }
         }
 
         Result r = new Result();
@@ -288,26 +365,53 @@ final class Backups {
                 if (p.cancelled()) return null;
                 ZipEntry e = en.nextElement();
                 String name = e.getName();
-                if (name.equals("backup-info.properties")) continue;
+                if (name == null || name.equals("backup-info.properties")) continue;
+                if (name.indexOf('\0') >= 0) { r.skipped++; continue; }
+                name = name.replace('\\', '/');
                 int slash = name.indexOf('/');
                 File root = slash > 0 ? targets.get(name.substring(0, slash)) : null;
                 if (root == null) { r.skipped++; continue; }
                 String rel = name.substring(slash + 1);
                 if (rel.length() == 0) { root.mkdirs(); continue; }
 
+                // Validate rel for traversal
+                if (rel.startsWith("/") || new File(rel).isAbsolute()) { r.skipped++; continue; }
+                String[] segs = rel.split("/");
+                boolean invalidSeg = false;
+                for (String s : segs) {
+                    if ("..".equals(s)) { invalidSeg = true; break; }
+                }
+                if (invalidSeg) { r.skipped++; continue; }
+
                 File dest = new File(root, rel);
-                String c = dest.getCanonicalPath();
-                String rc = root.getCanonicalPath();
-                if (!(c.equals(rc) || c.startsWith(rc + File.separator))) { r.skipped++; continue; }  // zip-slip
+                File canonicalDest = dest.getCanonicalFile();
+                File canonicalRoot = root.getCanonicalFile();
+                String c = canonicalDest.getPath();
+                String rc = canonicalRoot.getPath();
+                if (!c.equals(rc) && !c.startsWith(rc + File.separator)) { r.skipped++; continue; } // ZIP slip check
+
+                // Symlink check on intermediate parents
+                File cur = canonicalDest.getParentFile();
+                boolean hasSymlinkParent = false;
+                while (cur != null && !cur.equals(canonicalRoot)) {
+                    if (isSymbolicLink(cur)) { hasSymlinkParent = true; break; }
+                    cur = cur.getParentFile();
+                }
+                if (hasSymlinkParent || isSymbolicLink(canonicalDest)) {
+                    r.skipped++;
+                    continue;
+                }
 
                 try {
-                    if (e.isDirectory()) { dest.mkdirs(); continue; }
-                    File par = dest.getParentFile();
-                    if (par != null && !par.exists()) par.mkdirs();
+                    if (e.isDirectory()) { canonicalDest.mkdirs(); continue; }
+                    File par = canonicalDest.getParentFile();
+                    if (par != null && !par.exists() && !par.mkdirs() && !par.exists()) {
+                        throw new IOException("Cannot create directory: " + par);
+                    }
                     InputStream in = z.getInputStream(e);
                     OutputStream out = null;
                     try {
-                        out = new BufferedOutputStream(new FileOutputStream(dest));
+                        out = new BufferedOutputStream(new FileOutputStream(canonicalDest));
                         int n;
                         while ((n = in.read(buf)) > 0) {
                             out.write(buf, 0, n);
@@ -317,7 +421,7 @@ final class Backups {
                         if (out != null) try { out.close(); } catch (Throwable ignored) { }
                         try { in.close(); } catch (Throwable ignored) { }
                     }
-                    if (e.getTime() > 0) dest.setLastModified(e.getTime());
+                    if (e.getTime() > 0) canonicalDest.setLastModified(e.getTime());
                     r.files++;
                     p.onProgress(r.files, r.bytes);
                 } catch (IOException io) {
@@ -330,17 +434,38 @@ final class Backups {
         return r;
     }
 
-    /** true if b equals a or lies inside a. */
-    private static boolean sameOrInside(String a, String b) {
-        return b.equals(a) || b.startsWith(a.endsWith("/") ? a : a + "/");
-    }
-
-    private static void deleteChildren(File dir) {
+    private static void deleteChildren(File dir) throws IOException {
+        if (dir == null || !dir.exists()) return;
+        if (isSymbolicLink(dir)) {
+            throw new IOException("Refusing to delete contents of symbolic link: " + dir);
+        }
         File[] fs = dir.listFiles();
         if (fs == null) return;
+        String dirCanonical = dir.getCanonicalPath();
         for (File f : fs) {
-            if (f.isDirectory()) deleteChildren(f);
-            f.delete();
+            String childCanonical = f.getCanonicalPath();
+            if (!childCanonical.startsWith(dirCanonical + File.separator)) {
+                throw new IOException("Child escapes target directory (symlink/mount): " + f);
+            }
+            if (isSymbolicLink(f)) {
+                // Do not traverse into symlink directory; delete link only
+                if (!f.delete() && f.exists()) {
+                    throw new IOException("Failed to delete symbolic link: " + f);
+                }
+            } else if (f.isDirectory()) {
+                deleteChildren(f);
+                if (!f.delete() && f.exists()) {
+                    throw new IOException("Failed to delete directory: " + f);
+                }
+            } else {
+                if (!f.delete() && f.exists()) {
+                    throw new IOException("Failed to delete file: " + f);
+                }
+            }
         }
+    }
+
+    static boolean isSymbolicLink(File f) {
+        return RedirectConfig.isSymbolicLink(f);
     }
 }

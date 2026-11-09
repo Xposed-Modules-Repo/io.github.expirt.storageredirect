@@ -167,7 +167,7 @@ public class PathEngine {
     }
 
     public static String canonPath(String p, String sdRoot, String appDataDir, String pkgName) {
-        if (p == null || p.isEmpty() || p.charAt(0) != '/') return null;
+        if (p == null || p.isEmpty() || p.charAt(0) != '/' || p.indexOf('\0') >= 0) return null;
 
         // Tokenize and collapse ., ..
         List<String> segments = new ArrayList<>();
@@ -246,7 +246,7 @@ public class PathEngine {
             if (entry == null || entry.length < 2) continue;
             String rawFrom = entry[0] == null ? "" : entry[0].trim();
             String rawTo = entry[1] == null ? "" : entry[1].trim();
-            if (rawFrom.isEmpty() || rawTo.isEmpty()) continue;
+            if (rawFrom.isEmpty() || rawTo.isEmpty() || rawFrom.indexOf('\0') >= 0 || rawTo.indexOf('\0') >= 0) continue;
 
             String resolvedFrom = pkg != null ? rawFrom.replace("{pkg}", pkg) : rawFrom;
             String resolvedTo = pkg != null ? rawTo.replace("{pkg}", pkg) : rawTo;

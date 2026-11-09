@@ -92,6 +92,105 @@ final class RedirectConfig {
     }
 
     /**
+     * Validates an Android package name against path traversal, command injection, and illegal characters.
+     */
+    public static boolean isValidPackageName(String pkg) {
+        if (pkg == null || pkg.isEmpty() || pkg.length() > 256) return false;
+        if (pkg.contains("..") || pkg.contains("/") || pkg.contains("\\") || pkg.indexOf('\0') >= 0) return false;
+        if (pkg.startsWith(".") || pkg.endsWith(".")) return false;
+        boolean hasDot = false;
+        for (int i = 0; i < pkg.length(); i++) {
+            char c = pkg.charAt(i);
+            if (c == '.') {
+                hasDot = true;
+            } else if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) {
+                return false;
+            }
+        }
+        return hasDot;
+    }
+
+    /**
+     * Checks if a file is a symbolic link safely across Android API levels.
+     */
+    public static boolean isSymbolicLink(File f) {
+        if (f == null) return false;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                return java.nio.file.Files.isSymbolicLink(f.toPath());
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            android.system.StructStat stat = android.system.Os.lstat(f.getAbsolutePath());
+            return android.system.OsConstants.S_ISLNK(stat.st_mode);
+        } catch (Throwable ignored) {
+        }
+        try {
+            String abs = f.getAbsolutePath();
+            String can = f.getCanonicalPath();
+            return !abs.equals(can);
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    /**
+     * Safely validates and resolves an entry path within an extraction base directory.
+     * Prevents ZIP Slip traversal, absolute paths, backslashes, null bytes, and symlink escapes.
+     */
+    public static File safeResolveZipEntry(File baseDir, String entryName) throws IOException {
+        if (baseDir == null) throw new IOException("Base directory is null");
+        if (entryName == null || entryName.trim().isEmpty()) {
+            throw new IOException("Empty ZIP entry name");
+        }
+        if (entryName.indexOf('\0') >= 0) {
+            throw new IOException("ZIP entry contains null byte: " + entryName);
+        }
+        // Normalize Windows-style backslashes to standard forward slashes
+        String normalized = entryName.replace('\\', '/');
+
+        // Reject absolute paths
+        if (normalized.startsWith("/") || new File(normalized).isAbsolute()) {
+            throw new IOException("Absolute path in ZIP entry: " + entryName);
+        }
+        // Reject drive letter prefixes (e.g. C:)
+        if (normalized.length() >= 2 && Character.isLetter(normalized.charAt(0)) && normalized.charAt(1) == ':') {
+            throw new IOException("Drive letter in ZIP entry: " + entryName);
+        }
+
+        // Check path components for traversal
+        String[] parts = normalized.split("/");
+        for (String part : parts) {
+            if ("..".equals(part)) {
+                throw new IOException("Path traversal in ZIP entry: " + entryName);
+            }
+        }
+
+        File canonicalBase = baseDir.getCanonicalFile();
+        File target = new File(canonicalBase, normalized);
+        File canonicalTarget = target.getCanonicalFile();
+
+        String basePath = canonicalBase.getPath();
+        String targetPath = canonicalTarget.getPath();
+
+        if (!targetPath.equals(basePath) && !targetPath.startsWith(basePath + File.separator)) {
+            throw new IOException("ZIP Slip path traversal detected: " + entryName + " resolves to " + targetPath);
+        }
+
+        // Verify that intermediate directories do not cross symlinks outside the base
+        File current = canonicalTarget.getParentFile();
+        while (current != null && !current.equals(canonicalBase)) {
+            if (isSymbolicLink(current)) {
+                throw new IOException("ZIP entry parent is a symbolic link: " + current);
+            }
+            current = current.getParentFile();
+        }
+
+        return canonicalTarget;
+    }
+
+    /**
      * Checks if a path represents the default configuration directory
      * (e.g. "Android/media/uninviting" or "android/media/uninviting").
      */
@@ -467,16 +566,26 @@ final class RedirectConfig {
 
     private static void copyTree(File src, File dst) throws IOException {
         if (!src.exists()) return;
+        if (isSymbolicLink(src)) return; // Never follow symlinks
         if (src.isDirectory()) {
             if (!dst.exists() && !dst.mkdirs() && !dst.exists()) throw new IOException("Can\u2019t create " + dst);
             File[] fs = src.listFiles();
-            if (fs != null) for (File c : fs) copyTree(c, new File(dst, c.getName()));
+            if (fs != null) {
+                String srcCanonical = src.getCanonicalPath();
+                for (File c : fs) {
+                    if (isSymbolicLink(c)) continue;
+                    String cCanonical = c.getCanonicalPath();
+                    if (!cCanonical.startsWith(srcCanonical + File.separator)) continue;
+                    copyTree(c, new File(dst, c.getName()));
+                }
+            }
             return;
         }
         copyFile(src, dst);
     }
 
     private static void copyFile(File src, File dst) throws IOException {
+        if (isSymbolicLink(src)) return;
         FileInputStream in = new FileInputStream(src);
         FileOutputStream out = null;
         try {
@@ -493,8 +602,24 @@ final class RedirectConfig {
 
     private static void deleteTree(File f) {
         if (!f.exists()) return;
+        if (isSymbolicLink(f)) {
+            f.delete();
+            return;
+        }
         File[] fs = f.listFiles();
-        if (fs != null) for (File c : fs) deleteTree(c);
+        if (fs != null) {
+            try {
+                String fCanonical = f.getCanonicalPath();
+                for (File c : fs) {
+                    String cCanonical = c.getCanonicalPath();
+                    if (cCanonical.startsWith(fCanonical + File.separator)) {
+                        deleteTree(c);
+                    }
+                }
+            } catch (Throwable ignored) {
+                for (File c : fs) deleteTree(c);
+            }
+        }
         f.delete();
     }
 
@@ -508,6 +633,9 @@ final class RedirectConfig {
             if (redir.isFile()) return redir;
             return cfg;
         }
+        if (!isValidPackageName(pkg)) {
+            throw new IllegalArgumentException("Invalid package name: " + pkg);
+        }
         return new File(new File(d, "apps"), pkg + ".properties");
     }
 
@@ -516,7 +644,8 @@ final class RedirectConfig {
     }
 
     static boolean hasOverride(Context ctx, String sd, String pkg) {
-        return pkg != null && file(ctx, sd, pkg).isFile();
+        if (pkg == null || !isValidPackageName(pkg)) return false;
+        return file(ctx, sd, pkg).isFile();
     }
 
     static boolean hasOverride(String sd, String pkg) {
@@ -534,6 +663,7 @@ final class RedirectConfig {
     }
 
     static boolean deleteOverride(Context ctx, String sd, String pkg) {
+        if (pkg == null || !isValidPackageName(pkg)) return false;
         File f = file(ctx, sd, pkg);
         return !f.exists() || f.delete();
     }
@@ -803,23 +933,47 @@ final class RedirectConfig {
         try {
             zf = new ZipFile(srcZip);
             java.util.Enumeration<? extends ZipEntry> entries = zf.entries();
+            long totalBytes = 0;
+            final long MAX_TOTAL_BYTES = 50 * 1024 * 1024; // 50 MB decompression limit
+            int entryCount = 0;
+            final int MAX_ENTRIES = 2000;
             byte[] buf = new byte[16 * 1024];
             boolean foundAny = false;
+
             while (entries.hasMoreElements()) {
+                if (++entryCount > MAX_ENTRIES) {
+                    throw new IOException("Archive contains too many entries (limit " + MAX_ENTRIES + ")");
+                }
                 ZipEntry entry = entries.nextElement();
                 String name = entry.getName();
-                if (name.contains("..")) continue; // Avoid zip slip
-                File target = new File(tempDir, name);
+                if (name == null || name.trim().isEmpty()) continue;
+
+                File target;
+                try {
+                    target = safeResolveZipEntry(tempDir, name);
+                } catch (IOException ex) {
+                    deleteTree(tempDir);
+                    return "Security error in archive: " + ex.getMessage();
+                }
+
                 if (entry.isDirectory()) {
-                    target.mkdirs();
+                    if (!target.exists() && !target.mkdirs() && !target.exists()) {
+                        throw new IOException("Cannot create directory: " + target);
+                    }
                 } else {
                     File p = target.getParentFile();
-                    if (p != null && !p.exists()) p.mkdirs();
+                    if (p != null && !p.exists() && !p.mkdirs() && !p.exists()) {
+                        throw new IOException("Cannot create directory: " + p);
+                    }
                     InputStream is = zf.getInputStream(entry);
                     FileOutputStream fos = new FileOutputStream(target);
                     try {
                         int len;
                         while ((len = is.read(buf)) > 0) {
+                            totalBytes += len;
+                            if (totalBytes > MAX_TOTAL_BYTES) {
+                                throw new IOException("Archive exceeds decompression size limit (" + MAX_TOTAL_BYTES + " bytes)");
+                            }
                             fos.write(buf, 0, len);
                         }
                     } finally {

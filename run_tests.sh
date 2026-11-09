@@ -6,9 +6,26 @@ OUT=build/test_classes
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-javac -source 8 -target 8 -Xlint:-options -d "$OUT" \
+AJ="${ANDROID_JAR:-}"
+if [ -z "$AJ" ]; then
+  if [ -f "/data/user/0/com.agy/files/usr/share/android-sdk/android.jar" ]; then
+    AJ="/data/user/0/com.agy/files/usr/share/android-sdk/android.jar"
+  else
+    AJ="/usr/lib/android-sdk/platforms/android-23/android.jar"
+  fi
+fi
+
+javac -source 8 -target 8 -Xlint:-options -bootclasspath "$AJ" -cp "stubs" -d "$OUT" \
   src/io/github/expirt/storageredirect/Glob.java \
   src/io/github/expirt/storageredirect/PathEngine.java \
-  test/io/github/expirt/storageredirect/PathEngineTest.java
+  src/io/github/expirt/storageredirect/RedirectConfig.java \
+  src/io/github/expirt/storageredirect/Backups.java \
+  test/io/github/expirt/storageredirect/PathEngineTest.java \
+  test/io/github/expirt/storageredirect/SecurityTest.java
 
-java -cp "$OUT" io.github.expirt.storageredirect.PathEngineTest
+TEST_TMP="${HOME:-.}/tmp"
+mkdir -p "$TEST_TMP"
+
+java -Djava.io.tmpdir="$TEST_TMP" -cp "$OUT:$AJ:stubs" io.github.expirt.storageredirect.PathEngineTest
+echo ""
+java -Djava.io.tmpdir="$TEST_TMP" -cp "$OUT:$AJ:stubs" io.github.expirt.storageredirect.SecurityTest

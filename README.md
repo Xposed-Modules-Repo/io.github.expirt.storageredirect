@@ -106,11 +106,21 @@ Open an app's settings -> **Backups**. Creates plain `.zip` archives of that app
 
 ```bash
 # Automated tests:
-./run_tests.sh    # -> Executes complete PathEngine automated test suite (58 tests)
+./run_tests.sh    # -> Executes PathEngine test suite (58 tests) + Security suite (42 tests) [100 total, 100% pass]
 
 # Build APK:
+export KEYSTORE_PASS="your_password"
 ./build.sh        # -> Builds signed release/StorageRedirect-v2.15.apk
 ```
+
+## Security Architecture
+
+- **ZIP Slip Prevention:** All ZIP extraction operations (`RedirectConfig.safeResolveZipEntry` and `Backups.restore`) resolve canonical paths against canonical base directories, strictly enforcing boundary containment and rejecting absolute paths, traversal sequences (`../`), Windows-style separators (`..\`), drive prefixes (`C:`), null bytes (`\0`), and intermediate symlinks. Decompression is guarded by total-size and entry-count limits.
+- **Backup Metadata Validation:** Restore targets in `backup-info.properties` are strictly validated against approved application storage roots. Rejects any attempt to target the storage root itself (`/storage/emulated/0`), the backup archive itself, module configuration directories (`Android/media/uninviting`), root Android data containers (`/Android/data`), or unauthorized system directories.
+- **Protected Clean Restore:** Before any destructive deletion occurs, all target directories are pre-validated. Symbolic links are detected and unlinked without recursively traversing into target destinations outside approved directories. Any failure to delete immediately aborts restoration with an error.
+- **Package Name Sanitization:** All package names passed via intents, file lookups, or metadata are validated against strict Android package naming rules, eliminating path traversal risks via `EXTRA_PKG` or crafted configs.
+- **Hook Recursion Guards:** Method hooks and NIO translators use `ThreadLocal<Boolean>` recursion guards to prevent re-entrant loops during directory creation and path translation.
+- **Build Credential Security:** No hardcoded signing credentials in build scripts. Passwords are provided via secure interactive prompt or `KEYSTORE_PASS` environment variable, never echoed, and unset immediately after signing.
 
 Xposed API classes in `stubs/` are compile-only stubs and are not packaged into the output APK.
 

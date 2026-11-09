@@ -19,6 +19,9 @@ final class BackupConfig {
     String name = DEF_NAME;      // file-name template: {pkg} {app} {ver} {date} {time}
 
     static File file(String sd, String pkg) {
+        if (pkg == null || !RedirectConfig.isValidPackageName(pkg)) {
+            throw new IllegalArgumentException("Invalid package name: " + pkg);
+        }
         return new File(new File(RedirectConfig.dir(sd), "backup"), pkg + ".properties");
     }
 
@@ -28,6 +31,7 @@ final class BackupConfig {
 
     static BackupConfig load(String sd, String pkg) {
         BackupConfig c = new BackupConfig();
+        if (pkg == null || !RedirectConfig.isValidPackageName(pkg)) return c;
         FileInputStream in = null;
         try {
             File f = file(sd, pkg);
@@ -50,6 +54,7 @@ final class BackupConfig {
     }
 
     boolean save(String sd, String pkg) {
+        if (pkg == null || !RedirectConfig.isValidPackageName(pkg)) return false;
         FileOutputStream out = null;
         try {
             File f = file(sd, pkg);

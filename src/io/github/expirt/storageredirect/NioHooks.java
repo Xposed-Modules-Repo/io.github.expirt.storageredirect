@@ -33,6 +33,13 @@ public final class NioHooks {
 
     private NioHooks() {}
 
+    private static final ThreadLocal<Boolean> sInNioHook = new ThreadLocal<Boolean>() {
+        @Override
+        protected Boolean initialValue() {
+            return Boolean.FALSE;
+        }
+    };
+
     public static int install(ClassLoader cl, final PathTranslator translator) {
         int count = 0;
         String[] providerClasses = {
@@ -43,6 +50,8 @@ public final class NioHooks {
         XC_MethodHook hook = new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) {
+                if (Boolean.TRUE.equals(sInNioHook.get())) return;
+                sInNioHook.set(Boolean.TRUE);
                 try {
                     Object[] args = param.args;
                     if (args == null) return;
@@ -53,6 +62,7 @@ public final class NioHooks {
                         if (o instanceof Path) {
                             Path p = (Path) o;
                             String orig = p.toString();
+                            if (orig == null || orig.isEmpty() || orig.indexOf('\0') >= 0) continue;
                             String redirected = translator.translate(orig, methodName);
 
                             if (redirected != null && !redirected.equals(orig)) {
@@ -71,6 +81,8 @@ public final class NioHooks {
                     if (translator.isDebug()) {
                         translator.log("[NIO-ERROR] in hook: " + t);
                     }
+                } finally {
+                    sInNioHook.set(Boolean.FALSE);
                 }
             }
         };

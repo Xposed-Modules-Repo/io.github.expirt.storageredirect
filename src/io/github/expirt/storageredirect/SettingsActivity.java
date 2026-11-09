@@ -70,6 +70,10 @@ public class SettingsActivity extends Activity {
         ui.setupWindow(this);
         sd = Environment.getExternalStorageDirectory().getAbsolutePath();
         pkg = getIntent().getStringExtra(EXTRA_PKG);
+        if (pkg != null && !RedirectConfig.isValidPackageName(pkg)) {
+            finish();
+            return;
+        }
         overrideOn = RedirectConfig.hasOverride(sd, pkg);
         cfg = RedirectConfig.load(sd, pkg);
         setContentView(buildUi());
