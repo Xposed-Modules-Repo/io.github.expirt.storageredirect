@@ -749,7 +749,11 @@ public class MainActivity extends Activity {
         // About section
         col.addView(ui.sectionLabel("About"));
         List<View> aboutRows = new ArrayList<View>();
-        aboutRows.add(infoRow("Storage Redirect", "v2.15 (Neo Backup Redesign)"));
+        String verDisplay = "v2.16 (Neo Backup Redesign)";
+        try {
+            verDisplay = "v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Throwable ignored) {}
+        aboutRows.add(infoRow("Storage Redirect", verDisplay));
         aboutRows.add(infoRow("Design Reference", "Neo Backup by Machiav3lli"));
         aboutRows.add(infoRow("Iconography", "Phosphor Icons (MIT License)"));
         col.addView(ui.group(aboutRows));
