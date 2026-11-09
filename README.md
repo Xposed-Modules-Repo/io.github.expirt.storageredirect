@@ -119,3 +119,7 @@ Xposed API classes in `stubs/` are compile-only stubs and are not packaged into 
 - Native C/C++ code directly issuing syscalls (`open`/`fopen` inside native shared libraries without calling Java APIs) is not intercepted.
 - `java.nio.file` operations are supported on Android 8.0+ (API 26+); Android versions below API 26 fall back to standard `java.io.*` and `libcore.io.Linux` hooks.
 - Main storage only affects the app's own file calls, not files written by system services.
+
+
+
+If you like it, Star it :)
