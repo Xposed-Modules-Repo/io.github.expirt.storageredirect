@@ -1,6 +1,7 @@
 package io.github.expirt.storageredirect;
 
 import android.app.Activity;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
@@ -12,6 +13,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CompoundButton;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -22,35 +24,38 @@ import android.widget.Toast;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Settings for one app (EXTRA_PKG set) or the defaults (no extra). */
+/**
+ * SettingsActivity: Redesigned following Neo Backup's AppPage component hierarchy.
+ * Manages per-application redirection settings or global defaults with 100% feature preservation.
+ */
 public class SettingsActivity extends Activity {
 
-    static final String EXTRA_PKG = "pkg";
+    public static final String EXTRA_PKG = "pkg";
 
     private static final int K_INTERNAL = 1, K_PREFS = 2, K_EXTERNAL = 3, K_STORAGE = 4, K_RAW = 5,
-            K_OVERRIDE = 6, K_FAKE = 7;
+            K_OVERRIDE = 6, K_FAKE = 7, K_DEBUG = 8;
 
-    private Ui ui;
+    private NeoUi ui;
     private String sd;
-    private String pkg;                 // null = defaults
+    private String pkg;
     private RedirectConfig cfg;
-    private boolean overrideOn;         // only meaningful when pkg != null
+    private boolean overrideOn;
     private boolean building = true;
+
     private Switch prefsSwitch;
     private Switch rawSwitch;
     private final EditText[] pathEdits = new EditText[3];
     private final TextView[] resolved = new TextView[3];
     private EditText blockEdit;
     private EditText excludeEdit;
-    private List<String[]> rulePairs = new ArrayList<>();   // [original path, redirect path]
+    private List<String[]> rulePairs = new ArrayList<String[]>();
     private LinearLayout rulesHolder;
-    private final List<View> ruleControls = new ArrayList<>();
+    private final List<View> ruleControls = new ArrayList<View>();
     private LinearLayout warnCard;
     private TextView warnText;
     private BackupCard backupCard;
-    private final List<View> controls = new ArrayList<>();
+    private final List<View> controls = new ArrayList<View>();
 
-    /** A toggle row and its switch. */
     private static final class Row {
         LinearLayout view;
         Switch sw;
@@ -58,10 +63,11 @@ public class SettingsActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle b) {
-        Ui.applyTheme(this);
+        NeoUi.applyTheme(this);
         super.onCreate(b);
-        ui = new Ui(this);
-        ui.window(this);
+        RedirectConfig.init(this);
+        ui = new NeoUi(this);
+        ui.setupWindow(this);
         sd = Environment.getExternalStorageDirectory().getAbsolutePath();
         pkg = getIntent().getStringExtra(EXTRA_PKG);
         overrideOn = RedirectConfig.hasOverride(sd, pkg);
@@ -81,7 +87,6 @@ public class SettingsActivity extends Activity {
         return pkg == null || overrideOn;
     }
 
-    /** A restore changed this app's redirect settings: reload them and redraw. */
     void reloadAfterRestore() {
         overrideOn = RedirectConfig.hasOverride(sd, pkg);
         cfg = RedirectConfig.load(sd, pkg);
@@ -95,128 +100,214 @@ public class SettingsActivity extends Activity {
         applyEnabled();
     }
 
-    // -------------------------------------------------------------------- UI
     private View buildUi() {
         controls.clear();
         ruleControls.clear();
+
+        LinearLayout rootLayout = ui.vbox();
+        rootLayout.setBackgroundColor(ui.c.surface);
+
+        // ---- Neo Backup TopBar
+        String screenTitle = (pkg != null) ? "App Configuration" : "Default Settings";
+        FrameLayout topBarView = new FrameLayout(this);
+        topBarView.setLayoutParams(new LinearLayout.LayoutParams(-1, ui.dp(64)));
+        topBarView.setPadding(ui.dp(12), ui.dp(8), ui.dp(16), ui.dp(8));
+
+        LinearLayout topBarRow = ui.hbox();
+        topBarRow.setLayoutParams(new FrameLayout.LayoutParams(-1, -1));
+
+        FrameLayout btnBack = ui.roundButton(Phosphor.ARROW_LEFT, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                finish();
+            }
+        });
+        topBarRow.addView(btnBack);
+
+        TextView topTitle = ui.text(screenTitle, 20, ui.c.onSurface, true);
+        topTitle.setPadding(ui.dp(12), 0, 0, 0);
+        topBarRow.addView(topTitle, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        if (pkg != null) {
+            FrameLayout btnReset = ui.roundButton(Phosphor.RESTORE, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    ui.dialog(SettingsActivity.this, Phosphor.WARNING, "Reset to defaults?",
+                            "Remove custom configuration for this app and revert to the global defaults?",
+                            null, "Reset", new Runnable() {
+                        @Override public void run() { setOverride(false); }
+                    }, "Cancel");
+                }
+            });
+            topBarRow.addView(btnReset);
+        }
+
+        topBarView.addView(topBarRow);
+        rootLayout.addView(topBarView);
+
+        // ---- Scrollable body
         ScrollView sv = new ScrollView(this);
-        sv.setBackgroundColor(ui.c.surface);
         sv.setFillViewport(true);
         sv.setVerticalScrollBarEnabled(false);
 
         LinearLayout col = ui.vbox();
-        col.setPadding(ui.dp(16), ui.dp(36), ui.dp(16), ui.dp(40));
+        col.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), ui.dp(40));
         sv.addView(col, new ViewGroup.LayoutParams(-1, -2));
 
-        // ---- header
+        // ---- Header Card (App Icon, Title, Package)
+        LinearLayout headerCard = ui.card(ui.c.surfaceContainerLow, 22f);
         LinearLayout head = ui.hbox();
-        head.setPadding(ui.dp(4), 0, 0, ui.dp(18));
         String title = "Default settings";
-        String sub = "Used by every app without its own settings";
+        String sub = "Global rules applied to every app without an override";
+        String verInfo = "";
+
         if (pkg != null) {
             title = pkg;
             sub = pkg;
             try {
                 PackageManager pm = getPackageManager();
                 title = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString();
+                PackageInfo pi = pm.getPackageInfo(pkg, 0);
+                if (pi.versionName != null) verInfo = "v" + pi.versionName;
                 Drawable icon = pm.getApplicationIcon(pkg);
                 ImageView iv = new ImageView(this);
                 iv.setImageDrawable(icon);
-                ui.squircle(iv, 18);
+                ui.squircle(iv, 16);
                 head.addView(iv, new LinearLayout.LayoutParams(ui.dp(56), ui.dp(56)));
-            } catch (PackageManager.NameNotFoundException ignored) {
+            } catch (Throwable ignored) {
+                ImageView iv = new ImageView(this);
+                iv.setImageDrawable(Phosphor.get(Phosphor.HOUSE, ui.c.primary, ui.dp(36)));
+                head.addView(iv, new LinearLayout.LayoutParams(ui.dp(56), ui.dp(56)));
             }
         } else {
-            head.addView(ui.iconTile(Ui.Icon.SLIDERS, ui.c.tertiaryContainer, ui.c.onTertiaryContainer, 56));
+            FrameLayout iconBox = new FrameLayout(this);
+            iconBox.setBackground(ui.shape(ui.c.primaryContainer, 16f));
+            ImageView iv = new ImageView(this);
+            iv.setImageDrawable(Phosphor.get(Phosphor.SLIDERS, ui.c.onPrimaryContainer, ui.dp(28)));
+            iconBox.addView(iv, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER));
+            head.addView(iconBox, new LinearLayout.LayoutParams(ui.dp(56), ui.dp(56)));
         }
+
         LinearLayout names = ui.vbox();
         names.setPadding(ui.dp(16), 0, 0, 0);
-        names.addView(ui.text(title, 26, ui.c.onSurface, true));
-        names.addView(ui.text(sub, 13, ui.c.onSurfaceVariant, false));
+        names.addView(ui.text(title, 22, ui.c.onSurface, true));
+        names.addView(ui.text(sub, 12, ui.c.onSurfaceVariant, false));
+        if (!verInfo.isEmpty()) {
+            TextView vt = ui.chip(verInfo, ui.c.surfaceContainerHigh, ui.c.onSurfaceVariant);
+            LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(-2, -2);
+            vlp.topMargin = ui.dp(4);
+            names.addView(vt, vlp);
+        }
         head.addView(names, new LinearLayout.LayoutParams(0, -2, 1f));
-        col.addView(head);
+        headerCard.addView(head);
+        col.addView(headerCard);
 
-        // ---- per-app override
+        // ---- Per-app override toggle
         if (pkg != null) {
             Row ov = toggle("Custom settings for this app",
-                    overrideOn ? "This app ignores the defaults."
-                            : "Off \u2014 this app follows the default settings.",
+                    overrideOn ? "This app uses customized redirection rules."
+                            : "Off \u2014 this app follows the global default settings.",
                     overrideOn, K_OVERRIDE, false);
-            LinearLayout one = ui.card(overrideOn ? ui.c.primaryContainer : ui.c.surfaceContainer);
-            one.setPadding(ui.dp(20), ui.dp(14), ui.dp(20), ui.dp(14));
+            LinearLayout one = ui.card(overrideOn ? ui.c.primaryContainer : ui.c.surfaceContainer, 20f);
+            one.setPadding(ui.dp(18), ui.dp(14), ui.dp(18), ui.dp(14));
             one.addView(ov.view);
             col.addView(one);
         }
 
-        // ---- what to redirect
-        col.addView(ui.label("What to redirect"));
-        List<View> rows = new ArrayList<>();
-        rows.add(toggle("Internal data", "/data/data/<pkg>  \u2192  files, cache, databases, app_*",
+        // ---- Expandable Block: What to redirect
+        NeoUi.ExpandableBlock redirectBlock = ui.expandableBlock("What to redirect", Phosphor.SLIDERS, true);
+        List<View> rows = new ArrayList<View>();
+        rows.add(toggle("Internal data", "/data/data/<pkg> \u2192 files, cache, databases, app_*",
                 cfg.internal, K_INTERNAL, true).view);
-        Row prefs = toggle("SharedPreferences", "Also move shared_prefs (needs Internal data)",
+        Row prefs = toggle("SharedPreferences", "Also redirect shared_prefs (requires Internal data)",
                 cfg.prefs, K_PREFS, true);
         prefsSwitch = prefs.sw;
         rows.add(prefs.view);
         rows.add(toggle("App external data", "/Android/data/<pkg> and /Android/obb/<pkg>",
                 cfg.external, K_EXTERNAL, true).view);
-        rows.add(toggle("Main storage", "/storage/emulated/0  \u2192  private virtual sdcard per app",
+        rows.add(toggle("Main storage", "/storage/emulated/0 \u2192 private virtual storage per app",
                 cfg.storage, K_STORAGE, true).view);
-        Row raw = toggle("Hardcoded paths", "Also rewrite raw \u201C/data/data/\u2026\u201D and \u201C/sdcard/\u2026\u201D strings",
+        Row raw = toggle("Hardcoded paths", "Rewrite raw \u201C/data/data/\u2026\u201D and \u201C/sdcard/\u2026\u201D strings",
                 cfg.rawPaths, K_RAW, true);
         rawSwitch = raw.sw;
         rows.add(raw.view);
-        col.addView(ui.group(rows));
+        redirectBlock.content.addView(ui.group(rows));
+        col.addView(redirectBlock.root);
 
-        // ---- fake paths
-        col.addView(ui.label("Fake standard paths"));
-        List<View> fake = new ArrayList<>();
-        fake.add(toggle("Show standard paths to the app",
-                "The app keeps seeing /data/user/0/<pkg>, /storage/emulated/0 and /Android/data/<pkg>; "
-                        + "file operations are redirected underneath. Java I/O only \u2014 native code "
-                        + "(Unity, C++ engines) can\u2019t follow, so leave it off for those apps.",
+        // ---- Expandable Block: Destination folders
+        NeoUi.ExpandableBlock destBlock = ui.expandableBlock("Destination folders", Phosphor.FOLDER, true);
+        TextView destDesc = ui.text("Absolute path, or relative to " + sd + ". Use {pkg} for the package name.",
+                12, ui.c.onSurfaceVariant, false);
+        destDesc.setPadding(0, 0, 0, ui.dp(8));
+        destBlock.content.addView(destDesc);
+
+        List<View> paths = new ArrayList<View>();
+        paths.add(pathRow("Internal data folder", 0, cfg.internalPath, RedirectConfig.DEF_INTERNAL));
+        paths.add(pathRow("App external data folder", 1, cfg.externalPath, RedirectConfig.DEF_EXTERNAL));
+        paths.add(pathRow("Main storage folder", 2, cfg.storagePath, RedirectConfig.DEF_STORAGE));
+        destBlock.content.addView(ui.group(paths));
+
+        warnCard = ui.card(ui.c.errorContainer, 16f);
+        warnText = ui.text("", 12, ui.c.onErrorContainer, false);
+        warnCard.addView(warnText);
+        LinearLayout.LayoutParams wlp = (LinearLayout.LayoutParams) warnCard.getLayoutParams();
+        wlp.topMargin = ui.dp(6);
+        wlp.bottomMargin = 0;
+        destBlock.content.addView(warnCard);
+        col.addView(destBlock.root);
+        updatePathInfo();
+
+        // ---- Expandable Block: Fake standard paths & Diagnostics
+        NeoUi.ExpandableBlock fakeBlock = ui.expandableBlock("Standard paths & Diagnostics", Phosphor.SHIELD_CHECKERED, false);
+        List<View> fakeRows = new ArrayList<View>();
+        fakeRows.add(toggle("Show standard paths to the app",
+                "The app continues seeing /data/user/0/<pkg>, /storage/emulated/0 and /Android/data/<pkg>; "
+                        + "file operations are redirected underneath. (Java I/O only).",
                 cfg.fakePaths, K_FAKE, true).view);
-        col.addView(ui.group(fake));
+        fakeRows.add(toggle("Detailed diagnostics",
+                "Log original path, destination, matching rule, and operation status to logcat.",
+                cfg.debug, K_DEBUG, true).view);
+        fakeBlock.content.addView(ui.group(fakeRows));
+        col.addView(fakeBlock.root);
 
-        // ---- path redirects
-        col.addView(ui.label("Path redirects"));
-        List<View> rul = new ArrayList<>();
-        LinearLayout rulBox = ui.vbox();
-        rulBox.addView(ui.text("Redirect a path to another path", 16, ui.c.onSurface, true));
-        TextView rd = ui.text("Type or browse for the full original path, then the full path it should be redirected to. "
-                + "Both must start with /  ({pkg} = the app\u2019s package name). Everything under the "
-                + "original path goes to the same place under the redirect path; the app keeps using the "
-                + "original path. Wildcards: * = any name, ** = anything (several folders). Use {1}, {2}\u2026 "
-                + "in the redirect path for what each wildcard matched, e.g. /sdcard/Android/data/*/cache "
-                + "\u2192 /sdcard/Onedroid/cache/{1}. Rules are checked from the top; the first match wins. "
-                + "Java file I/O only.", 12, ui.c.onSurfaceVariant, false);
-        rd.setPadding(0, ui.dp(2), 0, ui.dp(12));
-        rulBox.addView(rd);
+        // ---- Expandable Block: Path-to-Path redirects
+        NeoUi.ExpandableBlock rulesBlock = ui.expandableBlock("Path-to-Path redirects", Phosphor.REFRESH, true);
+        TextView rd = ui.text("Redirect any file or directory to a custom destination. Both paths must start with / "
+                + "({pkg} = package name). Wildcards: * = single folder name, ** = recursive folders. "
+                + "Use {1}, {2}\u2026 in redirect path. Rules higher in the list take precedence.",
+                12, ui.c.onSurfaceVariant, false);
+        rd.setLineSpacing(0, 1.15f);
+        rd.setPadding(0, 0, 0, ui.dp(12));
+        rulesBlock.content.addView(rd);
+
         rulePairs = parseRules(cfg.pathRules);
         rulesHolder = ui.vbox();
-        rulBox.addView(rulesHolder);
-        TextView addRule = ui.button("Add redirect", Ui.TONAL, new View.OnClickListener() {
-            @Override public void onClick(View v) {
+        rulesBlock.content.addView(rulesHolder);
+
+        TextView addRule = ui.buttonWithIcon("Add redirect", Phosphor.PLUS_CIRCLE, NeoUi.TONAL, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
                 if (!editable()) return;
                 rulePairs.add(new String[]{"", ""});
                 fillRules(true);
             }
         });
         controls.add(addRule);
-        rulBox.addView(addRule);
-        rul.add(rulBox);
-        col.addView(ui.group(rul));
+        LinearLayout.LayoutParams arlp = new LinearLayout.LayoutParams(-1, -2);
+        arlp.topMargin = ui.dp(8);
+        rulesBlock.content.addView(addRule, arlp);
+        col.addView(rulesBlock.root);
         fillRules(false);
 
-        // ---- never redirect
-        col.addView(ui.label("Never redirect"));
-        List<View> exl = new ArrayList<>();
-        LinearLayout exBox = ui.vbox();
-        exBox.addView(ui.text("Paths to leave alone", 16, ui.c.onSurface, true));
-        TextView ed2 = ui.text("These paths, and everything under them, are never redirected \u2014 not by the "
-                + "rules above and not by the folder redirects. One per line; absolute, or relative to " + sd
-                + ". {pkg} and wildcards (* and **) work.", 12, ui.c.onSurfaceVariant, false);
-        ed2.setPadding(0, ui.dp(2), 0, ui.dp(10));
-        exBox.addView(ed2);
+        // ---- Expandable Block: Never redirect & Block creation
+        NeoUi.ExpandableBlock blockBlock = ui.expandableBlock("Excluded & Blocked paths", Phosphor.PROHIBIT, false);
+
+        blockBlock.content.addView(ui.text("Never redirect", 14, ui.c.onSurface, true));
+        TextView ed2 = ui.text("Paths that must never be redirected. One per line; absolute, or relative to " + sd
+                + ". {pkg} and wildcards (* and **) are supported.", 12, ui.c.onSurfaceVariant, false);
+        ed2.setPadding(0, ui.dp(2), 0, ui.dp(8));
+        blockBlock.content.addView(ed2);
+
         excludeEdit = ui.area(cfg.excludePaths, "Android/data/{pkg}/files/keep\n/storage/emulated/0/DCIM/**", 3);
         excludeEdit.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int c, int d) { }
@@ -228,24 +319,18 @@ public class SettingsActivity extends Activity {
             }
         });
         controls.add(excludeEdit);
-        exBox.addView(excludeEdit);
-        exBox.addView(addPathButton(excludeEdit, "Add path to leave alone"));
-        exl.add(exBox);
-        col.addView(ui.group(exl));
+        blockBlock.content.addView(excludeEdit);
 
-        // ---- block creation
-        col.addView(ui.label("Block creation"));
-        List<View> blk = new ArrayList<>();
-        LinearLayout blkBox = ui.vbox();
-        TextView bt = ui.text("Paths to block", 16, ui.c.onSurface, true);
-        blkBox.addView(bt);
-        TextView bd = ui.text("The app can\u2019t create a file or folder at exactly one of these paths "
-                + "(one per line, case-sensitive). Absolute, or relative to " + sd
-                + ".  {pkg} = the app\u2019s package name. * = any name, ** = anything: "
-                + "/x/logs/** blocks everything inside logs, /x/logs/* only its direct children. "
-                + "Java file I/O only.", 12, ui.c.onSurfaceVariant, false);
-        bd.setPadding(0, ui.dp(2), 0, ui.dp(10));
-        blkBox.addView(bd);
+        TextView bt = ui.text("Block creation", 14, ui.c.onSurface, true);
+        bt.setPadding(0, ui.dp(14), 0, 0);
+        blockBlock.content.addView(bt);
+
+        TextView bd = ui.text("The app cannot create a file or folder at these paths (permission denied). "
+                + "One per line. Absolute, or relative to " + sd + ". Supports * and ** wildcards.",
+                12, ui.c.onSurfaceVariant, false);
+        bd.setPadding(0, ui.dp(2), 0, ui.dp(8));
+        blockBlock.content.addView(bd);
+
         blockEdit = ui.area(cfg.blockPaths, "Android/data/{pkg}/files/.nomedia\n/storage/emulated/0/DCIM/.thumbnails", 3);
         blockEdit.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int c, int d) { }
@@ -257,52 +342,35 @@ public class SettingsActivity extends Activity {
             }
         });
         controls.add(blockEdit);
-        blkBox.addView(blockEdit);
-        blkBox.addView(addPathButton(blockEdit, "Add path to block"));
-        blk.add(blkBox);
-        col.addView(ui.group(blk));
+        blockBlock.content.addView(blockEdit);
+        col.addView(blockBlock.root);
 
-        // ---- destination folders
-        col.addView(ui.label("Destination folders"));
-        col.addView(ui.text("Absolute path, or relative to " + sd + ".  {pkg} = the app\u2019s package name.",
-                12, ui.c.onSurfaceVariant, false));
-        List<View> paths = new ArrayList<>();
-        paths.add(pathRow("Internal data folder", 0, cfg.internalPath, RedirectConfig.DEF_INTERNAL));
-        paths.add(pathRow("App external data folder", 1, cfg.externalPath, RedirectConfig.DEF_EXTERNAL));
-        paths.add(pathRow("Main storage folder", 2, cfg.storagePath, RedirectConfig.DEF_STORAGE));
-        LinearLayout.LayoutParams glp = new LinearLayout.LayoutParams(-1, -2);
-        glp.topMargin = ui.dp(8);
-        col.addView(ui.group(paths), glp);
-
-        warnCard = ui.card(ui.c.errorContainer);
-        warnText = ui.text("", 13, ui.c.onErrorContainer, false);
-        warnCard.addView(warnText);
-        ((LinearLayout.LayoutParams) warnCard.getLayoutParams()).topMargin = ui.dp(6);
-        col.addView(warnCard);
-        updatePathInfo();
-
-        // ---- backups (per app)
+        // ---- Backups Section (Per App)
         backupCard = null;
         if (pkg != null) {
-            col.addView(ui.label("Backups"));
+            NeoUi.ExpandableBlock bkBlock = ui.expandableBlock("Backups", Phosphor.FILE_ZIP, true);
             backupCard = new BackupCard(this, sd, pkg, new Runnable() {
                 @Override public void run() { reloadAfterRestore(); }
             });
-            col.addView(backupCard.view());
+            bkBlock.content.addView(backupCard.view());
+            col.addView(bkBlock.root);
         }
 
+        // Footer note
         TextView note = ui.text("Changes apply the next time the app starts \u2014 force stop it first.",
                 12, ui.c.onSurfaceVariant, false);
-        note.setPadding(ui.dp(8), ui.dp(18), 0, 0);
+        note.setPadding(ui.dp(8), ui.dp(16), 0, 0);
         col.addView(note);
-        return sv;
+
+        rootLayout.addView(sv, new LinearLayout.LayoutParams(-1, -1));
+        return rootLayout;
     }
 
     private Row toggle(String title, String desc, boolean init, final int key, boolean isSetting) {
         Row r = new Row();
         LinearLayout row = ui.hbox();
         LinearLayout tx = ui.vbox();
-        tx.addView(ui.text(title, 16, key == K_OVERRIDE && overrideOn ? ui.c.onPrimaryContainer : ui.c.onSurface, true));
+        tx.addView(ui.text(title, 15, key == K_OVERRIDE && overrideOn ? ui.c.onPrimaryContainer : ui.c.onSurface, true));
         TextView d = ui.text(desc, 12, key == K_OVERRIDE && overrideOn ? ui.c.onPrimaryContainer : ui.c.onSurfaceVariant, false);
         d.setPadding(0, ui.dp(2), ui.dp(12), 0);
         tx.addView(d);
@@ -310,7 +378,8 @@ public class SettingsActivity extends Activity {
 
         Switch s = ui.toggle(init);
         s.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override public void onCheckedChanged(CompoundButton v, boolean on) {
+            @Override
+            public void onCheckedChanged(CompoundButton v, boolean on) {
                 if (building) return;
                 if (key == K_OVERRIDE) { setOverride(on); return; }
                 if (!editable()) return;
@@ -321,6 +390,7 @@ public class SettingsActivity extends Activity {
                     case K_STORAGE: cfg.storage = on; break;
                     case K_RAW: cfg.rawPaths = on; break;
                     case K_FAKE: cfg.fakePaths = on; break;
+                    case K_DEBUG: cfg.debug = on; break;
                 }
                 persist();
                 updatePathInfo();
@@ -337,7 +407,7 @@ public class SettingsActivity extends Activity {
     private View pathRow(String title, final int which, String value, final String def) {
         LinearLayout box = ui.vbox();
         TextView t = ui.text(title, 13, ui.c.onSurfaceVariant, true);
-        t.setPadding(0, 0, 0, ui.dp(8));
+        t.setPadding(0, 0, 0, ui.dp(6));
         box.addView(t);
         EditText e = ui.field(value, def);
         e.addTextChangedListener(new TextWatcher() {
@@ -356,7 +426,7 @@ public class SettingsActivity extends Activity {
         });
         pathEdits[which] = e;
         controls.add(e);
-        box.addView(browseRow(e, title, false, controls));
+        box.addView(e);
         TextView r = ui.text("", 11, ui.c.onSurfaceVariant, false);
         r.setPadding(ui.dp(4), ui.dp(6), 0, 0);
         resolved[which] = r;
@@ -364,54 +434,8 @@ public class SettingsActivity extends Activity {
         return box;
     }
 
-    // ------------------------------------------------------------ folder picker
-    /** A text box with a Browse button beside it that fills the box from the folder picker. */
-    private LinearLayout browseRow(final EditText field, final String title, final boolean files,
-                                   List<View> bucket) {
-        LinearLayout row = ui.hbox();
-        row.addView(field, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        TextView b = ui.button("Browse", Ui.TONAL, new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                if (!editable()) return;
-                FolderPicker.show(SettingsActivity.this, ui, title, field.getText().toString(), sd, files,
-                        new FolderPicker.Callback() {
-                            @Override public void onPicked(String path) {
-                                field.setText(path);
-                                field.setSelection(path.length());
-                            }
-                        });
-            }
-        });
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        lp.leftMargin = ui.dp(8);
-        row.addView(b, lp);
-        bucket.add(b);
-        return row;
-    }
-
-    /** Button under a multi-line path list: picks a folder or file and adds it as a new line. */
-    private TextView addPathButton(final EditText area, final String title) {
-        TextView b = ui.button("Browse and add\u2026", Ui.TONAL, new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                if (!editable()) return;
-                FolderPicker.show(SettingsActivity.this, ui, title, "", sd, true,
-                        new FolderPicker.Callback() {
-                            @Override public void onPicked(String path) {
-                                String t = area.getText().toString();
-                                if (t.length() > 0 && !t.endsWith("\n")) t += "\n";
-                                area.setText(t + path);
-                            }
-                        });
-            }
-        });
-        controls.add(b);
-        return b;
-    }
-
-    // ------------------------------------------------------ path redirect editor
     private static List<String[]> parseRules(String text) {
-        List<String[]> out = new ArrayList<>();
+        List<String[]> out = new ArrayList<String[]>();
         for (String l : text.split("\n")) {
             String t = l.trim();
             if (t.length() == 0 || t.startsWith("#")) continue;
@@ -423,7 +447,6 @@ public class SettingsActivity extends Activity {
         return out;
     }
 
-    /** Saves every rule that has both boxes filled in. */
     private void saveRules() {
         StringBuilder sb = new StringBuilder();
         for (String[] pr : rulePairs) {
@@ -437,18 +460,30 @@ public class SettingsActivity extends Activity {
     }
 
     private void ruleWarn(String[] pr, TextView warn) {
-        boolean bad = (pr[0].trim().length() > 0 && !pr[0].trim().startsWith("/"))
-                || (pr[1].trim().length() > 0 && !pr[1].trim().startsWith("/"));
-        warn.setVisibility(bad ? View.VISIBLE : View.GONE);
+        String f = pr[0].trim(), t = pr[1].trim();
+        if (f.isEmpty() || t.isEmpty()) {
+            warn.setVisibility(View.GONE);
+            return;
+        }
+        boolean relFrom = !f.startsWith("/");
+        boolean relTo = !t.startsWith("/");
+        if (relFrom || relTo) {
+            String pf = relFrom ? (sd + "/" + f) : f;
+            String pt = relTo ? (sd + "/" + t) : t;
+            warn.setText("Resolves: " + pf + " \u2192 " + pt);
+            warn.setTextColor(ui.c.onSurfaceVariant);
+            warn.setVisibility(View.VISIBLE);
+        } else {
+            warn.setVisibility(View.GONE);
+        }
     }
 
     private TextView smallLabel(String t, int topDp) {
-        TextView v = ui.text(t, 13, ui.c.onSurfaceVariant, true);
-        v.setPadding(0, ui.dp(topDp), 0, ui.dp(8));
+        TextView v = ui.text(t, 12, ui.c.onSurfaceVariant, true);
+        v.setPadding(0, ui.dp(topDp), 0, ui.dp(6));
         return v;
     }
 
-    /** Moves a rule up (-1) or down (+1): rules higher in the list win. */
     private void moveRule(String[] pr, int dir) {
         if (!editable()) return;
         int i = rulePairs.indexOf(pr), j = i + dir;
@@ -459,30 +494,34 @@ public class SettingsActivity extends Activity {
         fillRules(false);
     }
 
-    /** (Re)draws one card per rule: the original path box with the redirect path box under it. */
     private void fillRules(boolean focusLast) {
         controls.removeAll(ruleControls);
         ruleControls.clear();
         rulesHolder.removeAllViews();
         if (rulePairs.isEmpty()) {
-            TextView none = ui.text("No redirects yet.", 13, ui.c.onSurfaceVariant, false);
-            none.setPadding(ui.dp(4), 0, 0, ui.dp(12));
+            TextView none = ui.text("No custom redirects configured.", 13, ui.c.onSurfaceVariant, false);
+            none.setPadding(ui.dp(4), ui.dp(4), 0, ui.dp(12));
             rulesHolder.addView(none);
         }
         EditText last = null;
         for (final String[] pr : rulePairs) {
-            LinearLayout card = ui.vbox();
-            card.setPadding(0, 0, 0, ui.dp(14));
+            LinearLayout card = ui.card(ui.c.surfaceContainerLow, 18f);
+            card.setPadding(ui.dp(16), ui.dp(14), ui.dp(16), ui.dp(14));
+
             card.addView(smallLabel("Original path", 0));
-            final EditText from = ui.field(pr[0], "/storage/emulated/0/Download/{pkg}");
-            card.addView(browseRow(from, "Original path", true, ruleControls));
-            card.addView(smallLabel("Redirect to", 12));
-            final EditText to = ui.field(pr[1], "/storage/emulated/0/Games/{pkg}");
-            card.addView(browseRow(to, "Redirect to", true, ruleControls));
-            final TextView warn = ui.text("Use full paths that start with /", 11, ui.c.error, false);
-            warn.setPadding(ui.dp(4), ui.dp(6), 0, 0);
+            final EditText from = ui.field(pr[0], "Download/{pkg} or /full/path");
+            card.addView(from);
+
+            card.addView(smallLabel("Redirect to path", 10));
+            final EditText to = ui.field(pr[1], "CustomData/{pkg}/downloads or /full/path");
+            card.addView(to);
+
+            final TextView warn = ui.text("", 11, ui.c.onSurfaceVariant, false);
+            warn.setPadding(ui.dp(4), ui.dp(4), 0, 0);
+            warn.setVisibility(View.GONE);
             card.addView(warn);
             ruleWarn(pr, warn);
+
             TextWatcher w = new TextWatcher() {
                 @Override public void beforeTextChanged(CharSequence s, int a, int c, int d) { }
                 @Override public void onTextChanged(CharSequence s, int a, int c, int d) { }
@@ -496,15 +535,24 @@ public class SettingsActivity extends Activity {
             };
             from.addTextChangedListener(w);
             to.addTextChangedListener(w);
+
             LinearLayout btns = ui.hbox();
-            btns.setPadding(0, ui.dp(4), 0, 0);
-            TextView up = ui.button("Up", Ui.TEXT, new View.OnClickListener() {
+            btns.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+            btns.setPadding(0, ui.dp(8), 0, 0);
+
+            TextView up = ui.buttonWithIcon("Up", Phosphor.ARROW_UP, NeoUi.TEXT, new View.OnClickListener() {
                 @Override public void onClick(View v) { moveRule(pr, -1); }
             });
-            TextView down = ui.button("Down", Ui.TEXT, new View.OnClickListener() {
+            up.setMinHeight(ui.dp(36));
+            up.setTextSize(12);
+
+            TextView down = ui.buttonWithIcon("Down", Phosphor.ARROW_DOWN, NeoUi.TEXT, new View.OnClickListener() {
                 @Override public void onClick(View v) { moveRule(pr, 1); }
             });
-            TextView rm = ui.button("Remove", Ui.TEXT_ERROR, new View.OnClickListener() {
+            down.setMinHeight(ui.dp(36));
+            down.setTextSize(12);
+
+            TextView rm = ui.buttonWithIcon("Remove", Phosphor.TRASH, NeoUi.TEXT_ERROR, new View.OnClickListener() {
                 @Override public void onClick(View v) {
                     if (!editable()) return;
                     rulePairs.remove(pr);
@@ -512,10 +560,14 @@ public class SettingsActivity extends Activity {
                     fillRules(false);
                 }
             });
+            rm.setMinHeight(ui.dp(36));
+            rm.setTextSize(12);
+
             btns.addView(up);
             btns.addView(down);
             btns.addView(rm);
             card.addView(btns);
+
             ruleControls.add(from);
             ruleControls.add(to);
             ruleControls.add(up);
@@ -531,7 +583,6 @@ public class SettingsActivity extends Activity {
 
     private void setOverride(boolean on) {
         if (on) {
-            // Start from whatever the app currently inherits.
             overrideOn = true;
             if (!cfg.save(sd, pkg)) {
                 overrideOn = false;
@@ -539,10 +590,10 @@ public class SettingsActivity extends Activity {
             }
         } else {
             if (!RedirectConfig.deleteOverride(sd, pkg)) {
-                toast("Can\u2019t remove the override \u2014 grant all-files access first");
+                toast("Can\u2019t remove override \u2014 grant all-files access first");
             } else {
                 overrideOn = false;
-                cfg = RedirectConfig.load(sd, pkg);     // back to the defaults
+                cfg = RedirectConfig.load(sd, pkg);
             }
         }
         rebuild();
@@ -565,7 +616,7 @@ public class SettingsActivity extends Activity {
             prefsSwitch.setEnabled(cfg.internal);
             prefsSwitch.setAlpha(cfg.internal ? 1f : 0.4f);
         }
-        if (rawSwitch != null && ed) {      // fake mode already covers hardcoded paths
+        if (rawSwitch != null && ed) {
             rawSwitch.setEnabled(!cfg.fakePaths);
             rawSwitch.setAlpha(cfg.fakePaths ? 0.4f : 1f);
         }
@@ -591,5 +642,11 @@ public class SettingsActivity extends Activity {
 
     private void toast(String s) {
         Toast.makeText(this, s, Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    public void finish() {
+        super.finish();
+        overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
     }
 }
