@@ -8,13 +8,18 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Outline;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
+import android.view.HapticFeedbackConstants;
 import android.os.Build;
 import android.text.Editable;
 import android.text.InputType;
@@ -187,33 +192,37 @@ public final class NeoUi {
 
     public LinearLayout card(int fill, float radiusDp) {
         LinearLayout l = vbox();
-        l.setPadding(dp(18), dp(16), dp(18), dp(16));
+        l.setPadding(dp(20), dp(18), dp(20), dp(18));
         l.setBackground(shape(fill, radiusDp));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.bottomMargin = dp(12);
+        lp.bottomMargin = dp(14);
         l.setLayoutParams(lp);
         return l;
     }
 
     public LinearLayout card(int fill) {
-        return card(fill, 20f);
+        return card(fill, 24f);
     }
 
     /**
-     * Grouped preference card container matching Neo Backup's BasePreference shapes.
-     * Top item has 20dp top corners, intermediate items have 4dp corners, bottom has 20dp bottom corners.
+     * Grouped preference card container matching ViviMusic's Material3SettingsGroup.
+     * Single item has 24dp corners.
+     * Top item has 24dp top corners, 6dp bottom corners.
+     * Intermediate items have 6dp corners.
+     * Bottom item has 6dp top corners, 24dp bottom corners.
+     * Spaced by 4dp gap.
      */
     public LinearLayout group(List<View> rows) {
         LinearLayout g = vbox();
         int n = rows.size();
         for (int i = 0; i < n; i++) {
             View v = rows.get(i);
-            float top = (i == 0) ? 20f : 4f;
-            float bottom = (i == n - 1) ? 20f : 4f;
-            v.setBackground(tile(c.surfaceContainer, top, top, bottom, bottom, c.onSurface));
-            v.setPadding(dp(18), dp(14), dp(18), dp(14));
+            float top = (n == 1) ? 24f : (i == 0 ? 24f : 6f);
+            float bottom = (n == 1) ? 24f : (i == n - 1 ? 24f : 6f);
+            v.setBackground(tile(c.surfaceContainer, top, top, bottom, bottom, c.primary));
+            v.setPadding(dp(18), dp(15), dp(18), dp(15));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-            if (i < n - 1) lp.bottomMargin = dp(2);
+            if (i < n - 1) lp.bottomMargin = dp(4);
             g.addView(v, lp);
         }
         return g;
@@ -308,8 +317,8 @@ public final class NeoUi {
         e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         e.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         e.setTextColor(c.onSurface);
-        e.setHintTextColor(c.outline);
-        e.setPadding(dp(16), dp(12), dp(16), dp(12));
+        e.setHintTextColor(c.onSurfaceVariant);
+        e.setPadding(dp(16), dp(14), dp(16), dp(14));
         e.setBackground(outline(false));
         e.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             @Override
@@ -321,30 +330,230 @@ public final class NeoUi {
     }
 
     public EditText area(String value, String hint, int lines) {
-        EditText e = field(value, hint);
+        final EditText e = new EditText(ctx);
+        e.setText(value);
+        e.setHint(hint);
         e.setSingleLine(false);
         e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
                 | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         e.setMinLines(lines);
         e.setGravity(Gravity.TOP | Gravity.START);
+        e.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        e.setTypeface(Typeface.MONOSPACE);
+        e.setTextColor(c.onSurface);
+        e.setHintTextColor(c.onSurfaceVariant);
+        e.setPadding(dp(16), dp(14), dp(16), dp(14));
+        e.setBackground(outline(false));
+        e.setOnFocusChangeListener(new View.OnFocusChangeListener() {
+            @Override
+            public void onFocusChange(View v, boolean focus) {
+                e.setBackground(outline(focus));
+            }
+        });
         return e;
     }
 
     public Drawable outline(boolean focused) {
-        GradientDrawable g = shape(c.surfaceContainerLow, 16);
-        g.setStroke(dp(focused ? 2 : 1), focused ? c.primary : c.outlineVariant);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(focused ? c.surfaceContainerHigh : c.surfaceContainer);
+        g.setCornerRadius(dp(16));
+        g.setStroke(dp(focused ? 2f : 1.5f), focused ? c.primary : c.outlineVariant);
         return g;
     }
 
     public Switch toggle(boolean checked) {
-        Switch s = new Switch(ctx);
-        s.setChecked(checked);
-        if (Build.VERSION.SDK_INT >= 23) {
-            int[][] st = {{android.R.attr.state_checked}, {}};
-            s.setThumbTintList(new ColorStateList(st, new int[]{c.onPrimary, c.outline}));
-            s.setTrackTintList(new ColorStateList(st, new int[]{c.primary, c.surfaceContainerHighest}));
+        return new ModernSwitchView(ctx, c, checked);
+    }
+
+    /**
+     * Material 3 Expressive Animated Toggle Switch matching ViviMusic's ModernSwitch.
+     * Features:
+     *  - Material 3 52dp x 32dp pill track
+     *  - Animated fluid spring thumb with horizontal stretch during motion
+     *  - Micro-icons inside thumb: Vivi Coral checkmark (✓) when ON, dark close (✕) when OFF
+     *  - Smooth ArgbEvaluator color interpolation for track, border, and thumb
+     *  - Rotation & alpha morph between check and close icons
+     *  - Tactile haptic feedback on toggle
+     */
+    public static class ModernSwitchView extends Switch {
+        private float progress;
+        private ValueAnimator animator;
+        private final Paint trackPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint borderPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint thumbPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint iconPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF trackRect = new RectF();
+        private final RectF thumbRect = new RectF();
+        private final ArgbEvaluator argb = new ArgbEvaluator();
+        private final float density;
+        private int primaryColor;
+        private int offTrackColor;
+        private int offBorderColor;
+        private int onThumbColor;
+        private int offThumbColor;
+
+        public ModernSwitchView(Context context, NeoTheme theme, boolean initChecked) {
+            super(context);
+            this.density = context.getResources().getDisplayMetrics().density;
+            init(theme, initChecked);
         }
-        return s;
+
+        private int dp(float v) {
+            return (int) (v * density + 0.5f);
+        }
+
+        private void init(NeoTheme theme, boolean initChecked) {
+            primaryColor = theme.primary;
+            offTrackColor = theme.night ? 0xFF24242B : 0xFFE0E0E6;
+            offBorderColor = theme.night ? 0xFF3E3E48 : 0xFFC4C4CE;
+            onThumbColor = 0xFFFFFFFF;
+            offThumbColor = theme.night ? 0xFF9E9EA8 : 0xFF707078;
+
+            borderPaint.setStyle(Paint.Style.STROKE);
+            borderPaint.setStrokeWidth(dp(1.5f));
+
+            iconPaint.setStyle(Paint.Style.STROKE);
+            iconPaint.setStrokeWidth(dp(2.2f));
+            iconPaint.setStrokeCap(Paint.Cap.ROUND);
+            iconPaint.setStrokeJoin(Paint.Join.ROUND);
+
+            setBackground(null);
+            setThumbDrawable(new ColorDrawable(Color.TRANSPARENT));
+            setTrackDrawable(new ColorDrawable(Color.TRANSPARENT));
+            setTextOn(null);
+            setTextOff(null);
+            setShowText(false);
+
+            setChecked(initChecked);
+            progress = initChecked ? 1f : 0f;
+        }
+
+        @Override
+        public void setChecked(boolean checked) {
+            super.setChecked(checked);
+            float target = checked ? 1f : 0f;
+            if (isAttachedToWindow() && getVisibility() == VISIBLE) {
+                animateTo(target);
+            } else {
+                if (animator != null) animator.cancel();
+                progress = target;
+                invalidate();
+            }
+        }
+
+        private void animateTo(float target) {
+            if (animator != null && animator.isRunning()) {
+                animator.cancel();
+            }
+            animator = ValueAnimator.ofFloat(progress, target);
+            animator.setDuration(240);
+            animator.setInterpolator(new DecelerateInterpolator(1.8f));
+            animator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
+                @Override
+                public void onAnimationUpdate(ValueAnimator a) {
+                    progress = (Float) a.getAnimatedValue();
+                    invalidate();
+                }
+            });
+            animator.start();
+        }
+
+        @Override
+        public boolean performClick() {
+            try {
+                performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+            } catch (Throwable ignored) {}
+            return super.performClick();
+        }
+
+        @Override
+        public void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+            setMeasuredDimension(dp(52), dp(32));
+        }
+
+        @Override
+        protected void onDraw(Canvas canvas) {
+            int w = getWidth();
+            int h = getHeight();
+            int trackW = dp(52);
+            int trackH = dp(32);
+            float left = (w - trackW) / 2f;
+            float top = (h - trackH) / 2f;
+            trackRect.set(left, top, left + trackW, top + trackH);
+            float cornerRadius = trackH / 2f;
+
+            // 1. Draw pill track
+            int trackColor = (Integer) argb.evaluate(progress, offTrackColor, primaryColor);
+            trackPaint.setColor(trackColor);
+            canvas.drawRoundRect(trackRect, cornerRadius, cornerRadius, trackPaint);
+
+            // 2. Draw border when off/transitioning
+            if (progress < 1.0f) {
+                int borderAlpha = (int) ((1.0f - progress) * 255);
+                borderPaint.setColor((offBorderColor & 0x00FFFFFF) | (borderAlpha << 24));
+                float strokeHalf = borderPaint.getStrokeWidth() / 2f;
+                RectF bRect = new RectF(trackRect.left + strokeHalf, trackRect.top + strokeHalf,
+                        trackRect.right - strokeHalf, trackRect.bottom - strokeHalf);
+                canvas.drawRoundRect(bRect, cornerRadius, cornerRadius, borderPaint);
+            }
+
+            // 3. Thumb dimensions & morphing stretch
+            float baseDiameter = dp(24);
+            float stretch = (float) Math.sin(progress * Math.PI) * dp(4.5f);
+            float thumbW = baseDiameter + stretch;
+            float thumbH = baseDiameter;
+            float thumbRadiusX = thumbW / 2f;
+            float thumbRadiusY = thumbH / 2f;
+
+            float inset = dp(4);
+            float minCenterX = trackRect.left + inset + (baseDiameter / 2f);
+            float maxCenterX = trackRect.right - inset - (baseDiameter / 2f);
+            float currentCenterX = minCenterX + (maxCenterX - minCenterX) * progress;
+            float currentCenterY = trackRect.centerY();
+
+            thumbRect.set(currentCenterX - thumbRadiusX, currentCenterY - thumbRadiusY,
+                    currentCenterX + thumbRadiusX, currentCenterY + thumbRadiusY);
+
+            // 4. Draw Thumb
+            int thumbColor = (Integer) argb.evaluate(progress, offThumbColor, onThumbColor);
+            thumbPaint.setColor(thumbColor);
+            canvas.drawRoundRect(thumbRect, thumbRadiusY, thumbRadiusY, thumbPaint);
+
+            // 5. Draw Thumb Icons
+            canvas.save();
+            canvas.translate(currentCenterX, currentCenterY);
+
+            // Close (✕) icon
+            if (progress < 1.0f) {
+                float crossAlpha = 1.0f - progress;
+                iconPaint.setColor(offTrackColor);
+                iconPaint.setAlpha((int) (crossAlpha * 255));
+                float s = dp(3.8f);
+                canvas.save();
+                canvas.rotate(progress * 45f);
+                canvas.drawLine(-s, -s, s, s, iconPaint);
+                canvas.drawLine(-s, s, s, -s, iconPaint);
+                canvas.restore();
+            }
+
+            // Checkmark (✓) icon
+            if (progress > 0.0f) {
+                float checkAlpha = progress;
+                iconPaint.setColor(primaryColor);
+                iconPaint.setAlpha((int) (checkAlpha * 255));
+                float checkScale = 0.5f + 0.5f * progress;
+                canvas.save();
+                canvas.scale(checkScale, checkScale);
+                Path checkPath = new Path();
+                checkPath.moveTo(dp(-4.2f), dp(0.2f));
+                checkPath.lineTo(dp(-1.2f), dp(3.2f));
+                checkPath.lineTo(dp(4.2f), dp(-3.2f));
+                canvas.drawPath(checkPath, iconPaint);
+                canvas.restore();
+            }
+
+            canvas.restore();
+        }
     }
 
     // ------------------------------------------------------- ExpandableBlock
@@ -599,17 +808,19 @@ public final class NeoUi {
             searchBox.setVisibility(View.GONE);
 
             LinearLayout searchInner = ui.hbox();
-            searchInner.setBackground(ui.shape(ui.c.surfaceContainerHigh, 24f));
-            searchInner.setPadding(ui.dp(14), 0, ui.dp(8), 0);
+            GradientDrawable searchBg = ui.shape(ui.c.surfaceContainerLow, 26f);
+            searchBg.setStroke(ui.dp(1.5f), ui.c.outlineVariant);
+            searchInner.setBackground(searchBg);
+            searchInner.setPadding(ui.dp(16), 0, ui.dp(10), 0);
             searchInner.setLayoutParams(new FrameLayout.LayoutParams(-1, -1));
 
             ImageView searchMag = new ImageView(ui.ctx);
-            searchMag.setImageDrawable(Phosphor.get(Phosphor.SEARCH, ui.c.onSurfaceVariant, ui.dp(20)));
+            searchMag.setImageDrawable(Phosphor.get(Phosphor.SEARCH, ui.c.primary, ui.dp(20)));
             searchInner.addView(searchMag, new LinearLayout.LayoutParams(ui.dp(24), ui.dp(24)));
 
             searchInput = new EditText(ui.ctx);
             searchInput.setHint("Search apps\u2026");
-            searchInput.setHintTextColor(ui.c.outline);
+            searchInput.setHintTextColor(ui.c.onSurfaceVariant);
             searchInput.setTextColor(ui.c.onSurface);
             searchInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
             searchInput.setBackgroundColor(0);

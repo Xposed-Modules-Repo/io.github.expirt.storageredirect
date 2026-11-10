@@ -7,7 +7,9 @@ cd "$(dirname "$0")"
 
 AJ="${ANDROID_JAR:-}"
 if [ -z "$AJ" ]; then
-  if [ -f "/data/user/0/com.agy/files/usr/share/android-sdk/android.jar" ]; then
+  if [ -f "/storage/emulated/0/projects/toolkit/android-sdk/platforms/android-37/android.jar" ]; then
+    AJ="/storage/emulated/0/projects/toolkit/android-sdk/platforms/android-37/android.jar"
+  elif [ -f "/data/user/0/com.agy/files/usr/share/android-sdk/android.jar" ]; then
     AJ="/data/user/0/com.agy/files/usr/share/android-sdk/android.jar"
   else
     AJ="/usr/lib/android-sdk/platforms/android-23/android.jar"
@@ -69,11 +71,13 @@ apksigner sign --ks "$KS" --ks-pass "pass:$KS_PASS" --ks-key-alias "$KS_ALIAS" -
 unset KS_PASS KEY_PASS
 apksigner verify "$FINAL_APK"
 
-# Keep both release/ and releases/ directories synchronized
-mkdir -p "$REL_DIR" "releases"
+# Keep release/, releases/, and /storage/emulated/0/projects/release/ directories synchronized
+mkdir -p "$REL_DIR" "releases" "/storage/emulated/0/projects/release"
 cp -f "$FINAL_APK" "releases/" 2>/dev/null || true
+cp -f "$FINAL_APK" "/storage/emulated/0/projects/release/" 2>/dev/null || true
 if [ -f "$FINAL_APK.idsig" ]; then
   cp -f "$FINAL_APK.idsig" "releases/" 2>/dev/null || true
+  cp -f "$FINAL_APK.idsig" "/storage/emulated/0/projects/release/" 2>/dev/null || true
 fi
 
 # Clean up all build junk immediately

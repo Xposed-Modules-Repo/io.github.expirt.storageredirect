@@ -506,7 +506,7 @@ final class BackupCard {
     private View toggleRow(String title, boolean init, final int which) {
         LinearLayout row = ui.hbox();
         row.addView(ui.text(title, 15, ui.c.onSurface, true), new LinearLayout.LayoutParams(0, -2, 1f));
-        Switch s = ui.toggle(init);
+        final Switch s = ui.toggle(init);
         s.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override public void onCheckedChanged(CompoundButton v, boolean on) {
                 if (building) return;
@@ -514,6 +514,12 @@ final class BackupCard {
                 else if (which == 1) bc.external = on;
                 else bc.storage = on;
                 bc.save(sd, pkg);
+            }
+        });
+        row.setClickable(true);
+        row.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (s.isEnabled()) s.toggle();
             }
         });
         row.addView(s);

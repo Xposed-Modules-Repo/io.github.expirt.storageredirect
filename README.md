@@ -25,16 +25,15 @@ Each app can have its **own settings** (open the app in the module's list and tu
 
 `getCodeCacheDir` and the `webview` dir are deliberately left in real private storage.
 
-## Look and feel — Neo Backup Design Reference
+## Look and feel — ViviMusic & Material 3 Expressive Design
 
-Redesigned following the visual architecture and interaction philosophy of [Neo Backup](https://github.com/NeoApplications/neo-backup):
-- **Navigation Suite:** 4-tab bottom navigation (Apps, Rules, Backups, Settings) with selection pill indicators and smooth transitions.
-- **Horizontal Swipe Paging:** Full gesture support to swipe left and right between tabs with boundary resistance, inertia, and smooth snapping.
-- **Animations & Motion:** Expanding/collapsing search bar (`WideSearchField`), smooth height expansion and caret rotation on `ExpandableBlock`, tactile scale feedback on press, and M3 dialog transitions.
-- **TopBar:** Action header with live animated search (`WideSearchField`), animated spinning refresh indicator, and background task progress bar.
-- **Surface Hierarchy:** Multi-layer containers (`surfaceContainerLow`, `surfaceContainer`, `surfaceContainerHigh`) with 20dp-28dp rounded corners.
+Redesigned following the signature visual design and animations of [ViviMusic](https://github.com/vivi-music/vivi-music):
+- **ModernSwitch Animated Toggles:** Material 3 Expressive switches with fluid spring thumb morphing (horizontal elongation during travel), micro-vector in-thumb checkmark (`✓`) in Vivi Coral and dismiss cross (`✕`), smooth ArgbEvaluator color interpolation, and tactile haptic feedback. Clicking anywhere on the item row triggers toggle with ripple feedback.
+- **Vivi Textbox Styling:** 16dp rounded input containers with subtle idle outline and focused Vivi Coral (`#ED5564`) accent borders. Clean pill search bar (`26dp` radius, `surfaceContainerLow` fill, Coral search icon).
+- **Grouped Settings Hierarchy:** Preference groups shaped with Vivi's `listItemShape` (24dp single card, 24dp top / 6dp bottom for first, 6dp for middle, 6dp top / 24dp bottom for last item; 4dp vertical gap).
+- **Color Tokens & Palettes:** Signature Vivi Coral Red (`#ED5564`) default accent, pure AMOLED black and dark slate palettes (`#0A0A0C` background, `#141418` low container, `#18181E` container, `#202026` high container, `#EEEEF2` text, `#9E9EA8` secondary).
+- **Navigation Suite:** 4-tab bottom navigation (Apps, Rules, Backups, Settings) with selection pill indicators and horizontal swipe paging.
 - **Iconography:** 100% crisp Phosphor vector icons.
-- **Themes & Palettes:** Light theme, Dark theme, AMOLED Black, and Android 12+ Monet dynamic system colors, with user preference persistence.
 
 ## Configuration Storage & Architecture
 
@@ -97,7 +96,7 @@ Open an app's settings -> **Backups**. Creates plain `.zip` archives of that app
 
 ## Use
 
-1. Install `release/StorageRedirect-v2.16.apk`, open it, grant all-files access, configure defaults and/or per-app rules.
+1. Install `release/StorageRedirect-v2.17.apk`, open it, grant all-files access, configure defaults and/or per-app rules.
 2. Patch the target app with LSPatch and embed this module.
 3. The **target app** needs all-files access (`MANAGE_EXTERNAL_STORAGE`, Android 11+).
 4. Rules and overrides take effect immediately with live reload.
@@ -110,7 +109,7 @@ Open an app's settings -> **Backups**. Creates plain `.zip` archives of that app
 
 # Build APK:
 export KEYSTORE_PASS="your_password"
-./build.sh        # -> Builds signed release/StorageRedirect-v2.16.apk
+./build.sh        # -> Builds signed release/StorageRedirect-v2.17.apk
 ```
 
 ## Security Architecture

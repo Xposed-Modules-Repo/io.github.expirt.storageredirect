@@ -736,7 +736,7 @@ public class MainActivity extends Activity {
             }
         }));
 
-        final String[] accentOptions = {"Red Comet (Neo default)", "Blue", "Teal", "Purple", "Dynamic Monet"};
+        final String[] accentOptions = {"Vivi Coral (Default)", "Blue", "Teal", "Purple", "Dynamic Monet"};
         int currentAccent = NeoTheme.getSavedAccent(this);
         themeRows.add(actionPreference("Color palette", accentOptions[currentAccent], Phosphor.SLIDERS, new View.OnClickListener() {
             @Override
@@ -749,12 +749,12 @@ public class MainActivity extends Activity {
         // About section
         col.addView(ui.sectionLabel("About"));
         List<View> aboutRows = new ArrayList<View>();
-        String verDisplay = "v2.16 (Neo Backup Redesign)";
+        String verDisplay = "v2.17 (ViviMusic Redesign)";
         try {
             verDisplay = "v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (Throwable ignored) {}
         aboutRows.add(infoRow("Storage Redirect", verDisplay));
-        aboutRows.add(infoRow("Design Reference", "Neo Backup by Machiav3lli"));
+        aboutRows.add(infoRow("Design Reference", "ViviMusic by Victor Santis & Material 3 Expressive"));
         aboutRows.add(infoRow("Iconography", "Phosphor Icons (MIT License)"));
         col.addView(ui.group(aboutRows));
 
@@ -804,7 +804,7 @@ public class MainActivity extends Activity {
     }
 
     private void showAccentDialog() {
-        final String[] options = {"Red Comet (Neo default)", "Blue", "Teal", "Purple", "Dynamic Monet"};
+        final String[] options = {"Vivi Coral (Default)", "Blue", "Teal", "Purple", "Dynamic Monet"};
         LinearLayout body = ui.vbox();
         for (int i = 0; i < options.length; i++) {
             final int accent = i;

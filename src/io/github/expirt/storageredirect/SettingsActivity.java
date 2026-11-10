@@ -380,7 +380,7 @@ public class SettingsActivity extends Activity {
         tx.addView(d);
         row.addView(tx, new LinearLayout.LayoutParams(0, -2, 1f));
 
-        Switch s = ui.toggle(init);
+        final Switch s = ui.toggle(init);
         s.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(CompoundButton v, boolean on) {
@@ -399,6 +399,15 @@ public class SettingsActivity extends Activity {
                 persist();
                 updatePathInfo();
                 applyEnabled();
+            }
+        });
+        row.setClickable(true);
+        row.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (s.isEnabled()) {
+                    s.toggle();
+                }
             }
         });
         if (isSetting) controls.add(s);

@@ -8,7 +8,9 @@ mkdir -p "$OUT"
 
 AJ="${ANDROID_JAR:-}"
 if [ -z "$AJ" ]; then
-  if [ -f "/data/user/0/com.agy/files/usr/share/android-sdk/android.jar" ]; then
+  if [ -f "/storage/emulated/0/projects/toolkit/android-sdk/platforms/android-37/android.jar" ]; then
+    AJ="/storage/emulated/0/projects/toolkit/android-sdk/platforms/android-37/android.jar"
+  elif [ -f "/data/user/0/com.agy/files/usr/share/android-sdk/android.jar" ]; then
     AJ="/data/user/0/com.agy/files/usr/share/android-sdk/android.jar"
   else
     AJ="/usr/lib/android-sdk/platforms/android-23/android.jar"

@@ -18,11 +18,12 @@ public final class NeoTheme {
     public static final int MODE_DARK = 2;
     public static final int MODE_AMOLED = 3;
 
-    public static final int ACCENT_CRIMSON = 0;   // Neo Backup default (Red Comet)
-    public static final int ACCENT_BLUE = 1;
-    public static final int ACCENT_TEAL = 2;
-    public static final int ACCENT_PURPLE = 3;
-    public static final int ACCENT_DYNAMIC = 4;
+    public static final int ACCENT_VIVI = 0;      // ViviMusic default (Coral Rose Red #ED5564)
+    public static final int ACCENT_CRIMSON = 0;   // backwards compatibility alias
+    public static final int ACCENT_BLUE = 1;      // Azure Blue
+    public static final int ACCENT_TEAL = 2;      // Mint Teal
+    public static final int ACCENT_PURPLE = 3;    // Electric Violet
+    public static final int ACCENT_DYNAMIC = 4;   // Android 12+ Monet
 
     private static final String PREF_NAME = "neo_theme_prefs";
     private static final String KEY_MODE = "theme_mode";
@@ -153,14 +154,14 @@ public final class NeoTheme {
         if (t.amoled) {
             t.surface = 0xFF000000;
             t.surfaceDim = 0xFF000000;
-            t.surfaceBright = 0xFF161616;
+            t.surfaceBright = 0xFF141418;
             t.surfaceContainerLowest = 0xFF000000;
-            t.surfaceContainerLow = 0xFF0C0C0C;
-            t.surfaceContainer = 0xFF141414;
-            t.surfaceContainerHigh = 0xFF1E1E1E;
-            t.surfaceContainerHighest = 0xFF2A2A2A;
-            t.outline = 0xFF4E4E4E;
-            t.outlineVariant = 0xFF2A2A2A;
+            t.surfaceContainerLow = 0xFF0A0A0C;
+            t.surfaceContainer = 0xFF121216;
+            t.surfaceContainerHigh = 0xFF1A1A20;
+            t.surfaceContainerHighest = 0xFF24242C;
+            t.outline = 0xFF3A3A44;
+            t.outlineVariant = 0xFF222228;
         }
 
         return t;
@@ -168,93 +169,93 @@ public final class NeoTheme {
 
     private void loadNeoPalette() {
         if (!night) {
-            // Light Theme (Neo Backup values)
+            // Light Theme (ViviMusic Palette)
             switch (currentAccent) {
                 case ACCENT_BLUE:
-                    primary = 0xFF155093; onPrimary = 0xFFFFFFFF;
-                    primaryContainer = 0xFF4475BA; onPrimaryContainer = 0xFFFFFFFF;
+                    primary = 0xFF1D6FDB; onPrimary = 0xFFFFFFFF;
+                    primaryContainer = 0x241D6FDB; onPrimaryContainer = 0xFF0B3A7A;
                     break;
                 case ACCENT_TEAL:
-                    primary = 0xFF006A60; onPrimary = 0xFFFFFFFF;
-                    primaryContainer = 0xFF73F8E6; onPrimaryContainer = 0xFF00201C;
+                    primary = 0xFF0D9488; onPrimary = 0xFFFFFFFF;
+                    primaryContainer = 0x240D9488; onPrimaryContainer = 0xFF04403B;
                     break;
                 case ACCENT_PURPLE:
-                    primary = 0xFF7B1FA2; onPrimary = 0xFFFFFFFF;
-                    primaryContainer = 0xFFEADDFF; onPrimaryContainer = 0xFF21005D;
+                    primary = 0xFF8B5CF6; onPrimary = 0xFFFFFFFF;
+                    primaryContainer = 0x248B5CF6; onPrimaryContainer = 0xFF3B1578;
                     break;
-                default: // ACCENT_CRIMSON (Neo Backup canonical Red Comet)
-                    primary = 0xFFA20034; onPrimary = 0xFFFFFFFF;
-                    primaryContainer = 0xFFE11E51; onPrimaryContainer = 0xFFFFFFFF;
+                default: // ACCENT_VIVI / ACCENT_CRIMSON (ViviMusic Coral Red #ED5564)
+                    primary = 0xFFED5564; onPrimary = 0xFFFFFFFF;
+                    primaryContainer = 0x24ED5564; onPrimaryContainer = 0xFF821320;
                     break;
             }
 
-            secondary = 0xFFA63649;
+            secondary = 0xFF5C5B66;
             onSecondary = 0xFFFFFFFF;
-            secondaryContainer = 0xFFFF8B98;
-            onSecondaryContainer = 0xFF4D0014;
+            secondaryContainer = 0xFFE2E1EC;
+            onSecondaryContainer = 0xFF191A23;
 
-            tertiary = 0xFF155093;
+            tertiary = primary;
             onTertiary = 0xFFFFFFFF;
-            tertiaryContainer = 0xFF4475BA;
-            onTertiaryContainer = 0xFFFFFFFF;
+            tertiaryContainer = primaryContainer;
+            onTertiaryContainer = onPrimaryContainer;
 
-            surface = 0xFFFFF8F7;
-            surfaceDim = 0xFFF1D3D4;
-            surfaceBright = 0xFFFFF8F7;
+            surface = 0xFFFDF8F8;
+            surfaceDim = 0xFFF0EAEB;
+            surfaceBright = 0xFFFFFFFF;
             surfaceContainerLowest = 0xFFFFFFFF;
-            surfaceContainerLow = 0xFFFFF0F0;
-            surfaceContainer = 0xFFFFE9E9;
-            surfaceContainerHigh = 0xFFFFE1E2;
-            surfaceContainerHighest = 0xFFFADBDD;
+            surfaceContainerLow = 0xFFF8F0F1;
+            surfaceContainer = 0xFFF2E9EA;
+            surfaceContainerHigh = 0xFFEBE2E3;
+            surfaceContainerHighest = 0xFFE4DCDE;
 
-            onSurface = 0xFF281719;
-            onSurfaceVariant = 0xFF5C3F42;
-            outline = 0xFF906F71;
-            outlineVariant = 0xFFE4BDBF;
+            onSurface = 0xFF1E1A1B;
+            onSurfaceVariant = 0xFF4F4446;
+            outline = 0xFF827476;
+            outlineVariant = 0xFFD4C3C5;
         } else {
-            // Dark Theme (Neo Backup values)
+            // Dark Theme (ViviMusic Signature Palette)
             switch (currentAccent) {
                 case ACCENT_BLUE:
-                    primary = 0xFFA7C8FF; onPrimary = 0xFF003061;
-                    primaryContainer = 0xFF265C9F; onPrimaryContainer = 0xFFFFFFFF;
+                    primary = 0xFF3D8BFF; onPrimary = 0xFF002B66;
+                    primaryContainer = 0x293D8BFF; onPrimaryContainer = 0xFFD8E4FF;
                     break;
                 case ACCENT_TEAL:
-                    primary = 0xFF53DBC9; onPrimary = 0xFF003731;
-                    primaryContainer = 0xFF005048; onPrimaryContainer = 0xFF73F8E6;
+                    primary = 0xFF2DD4BF; onPrimary = 0xFF003731;
+                    primaryContainer = 0x292DD4BF; onPrimaryContainer = 0xFFCCFBF1;
                     break;
                 case ACCENT_PURPLE:
-                    primary = 0xFFD0BCFF; onPrimary = 0xFF381E72;
-                    primaryContainer = 0xFF4F378B; onPrimaryContainer = 0xFFEADDFF;
+                    primary = 0xFFA855F7; onPrimary = 0xFF381E72;
+                    primaryContainer = 0x29A855F7; onPrimaryContainer = 0xFFF3E8FF;
                     break;
-                default: // ACCENT_CRIMSON (Neo Backup canonical)
-                    primary = 0xFFFFB2B9; onPrimary = 0xFF67001E;
-                    primaryContainer = 0xFFBC003E; onPrimaryContainer = 0xFFFFFFFF;
+                default: // ACCENT_VIVI (ViviMusic DefaultThemeColor #ED5564)
+                    primary = 0xFFED5564; onPrimary = 0xFFFFFFFF;
+                    primaryContainer = 0x2BED5564; onPrimaryContainer = 0xFFFFD9DD;
                     break;
             }
 
-            secondary = 0xFFFFB2B9;
-            onSecondary = 0xFF67011E;
-            secondaryContainer = 0xFF7E162D;
-            onSecondaryContainer = 0xFFFFC8CC;
+            secondary = 0xFFC6C4D0;
+            onSecondary = 0xFF2F2F39;
+            secondaryContainer = 0xFF454550;
+            onSecondaryContainer = 0xFFE2E0EC;
 
-            tertiary = 0xFFA7C8FF;
-            onTertiary = 0xFF003061;
-            tertiaryContainer = 0xFF265C9F;
-            onTertiaryContainer = 0xFFFFFFFF;
+            tertiary = primary;
+            onTertiary = onPrimary;
+            tertiaryContainer = primaryContainer;
+            onTertiaryContainer = onPrimaryContainer;
 
-            surface = 0xFF1F0F10;
-            surfaceDim = 0xFF1F0F10;
-            surfaceBright = 0xFF483436;
-            surfaceContainerLowest = 0xFF190A0B;
-            surfaceContainerLow = 0xFF281719;
-            surfaceContainer = 0xFF2C1B1C;
-            surfaceContainerHigh = 0xFF382527;
-            surfaceContainerHighest = 0xFF433031;
+            surface = 0xFF0E0E12;
+            surfaceDim = 0xFF0A0A0C;
+            surfaceBright = 0xFF202028;
+            surfaceContainerLowest = 0xFF08080A;
+            surfaceContainerLow = 0xFF141418;
+            surfaceContainer = 0xFF18181E;
+            surfaceContainerHigh = 0xFF202026;
+            surfaceContainerHighest = 0xFF282830;
 
-            onSurface = 0xFFFADBDD;
-            onSurfaceVariant = 0xFFE4BDBF;
-            outline = 0xFFAB888A;
-            outlineVariant = 0xFF5C3F42;
+            onSurface = 0xFFEEEEF2;
+            onSurfaceVariant = 0xFF9E9EA8;
+            outline = 0xFF383842;
+            outlineVariant = 0xFF222228;
         }
     }
 
