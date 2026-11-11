@@ -23,7 +23,7 @@ Each app can have its **own settings** (open the app in the module's list and tu
 | Main storage | `/storage/emulated/0` becomes a private virtual sdcard per app |
 | Hardcoded paths | Rewrites raw `/data/data/...`, `/sdcard/...` strings in `File(String)` |
 
-`getCodeCacheDir` and the `webview` dir are deliberately left in real private storage.
+`getCodeCacheDir`, `webview`, native library directories (`lib`, `libs`, `app_libs`), and LSPatch origin APKs/caches (`/cache/lspatch`, `/files/lspatch`, `/lspatch`, and any `.apk` inside private storage) are deliberately protected in real private storage so Android's `noexec` shared storage restriction and dynamic loaders (such as Facebook SoLoader / WhatsAppLibLoader) never fail.
 
 ## Look and feel — ViviMusic & Material 3 Expressive Design
 
@@ -98,7 +98,7 @@ Open an app's settings -> **Backups** (or the global **Backups** tab in the main
 
 ## Use
 
-1. Install `release/StorageRedirect-v2.18.apk`, open it, grant all-files access, configure defaults and/or per-app rules.
+1. Install `release/StorageRedirect-v2.21.apk`, open it, grant all-files access, configure defaults and/or per-app rules.
 2. Patch the target app with LSPatch and embed this module.
 3. The **target app** needs all-files access (`MANAGE_EXTERNAL_STORAGE`, Android 11+).
 4. Rules and overrides take effect immediately with live reload.
@@ -111,7 +111,7 @@ Open an app's settings -> **Backups** (or the global **Backups** tab in the main
 
 # Build APK:
 export KEYSTORE_PASS="your_password"
-./build.sh        # -> Builds signed release/StorageRedirect-v2.18.apk
+./build.sh        # -> Builds signed release/StorageRedirect-v2.21.apk
 ```
 
 ## Security Architecture

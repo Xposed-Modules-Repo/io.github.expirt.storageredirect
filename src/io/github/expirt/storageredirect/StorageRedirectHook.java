@@ -34,10 +34,15 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage.LoadPackageParam;
  */
 public class StorageRedirectHook implements IXposedHookLoadPackage {
 
-    /** getDir() names left in the real private dir (WebView needs a real private dir). */
-    private static final Set<String> KEEP_PRIVATE_DIRS = new HashSet<>(Arrays.asList("webview"));
-    /** Sub-paths of the private data dir that are never redirected (dex/odex, native libs). */
-    private static final String[] KEEP_PRIVATE_SUBPATHS = {"/code_cache", "/app_webview", "/lib"};
+    /** getDir() names left in the real private dir (WebView needs a real private dir, native libs, LSPatch origins). */
+    private static final Set<String> KEEP_PRIVATE_DIRS = new HashSet<>(Arrays.asList(
+            "webview", "lib", "libs", "app_libs", "lspatch"
+    ));
+    /** Sub-paths of the private data dir that are never redirected (dex/odex, native libs, LSPatch origin APKs). */
+    private static final String[] KEEP_PRIVATE_SUBPATHS = {
+            "/code_cache", "/app_webview", "/lib", "/app_libs", "/app_lib",
+            "/cache/lspatch", "/files/lspatch", "/lspatch"
+    };
     private static final String TAG = "[StorageRedirect] ";
 
     /** libcore.io.Linux methods that take file paths (hooked in fake mode and for path redirects). */
@@ -395,13 +400,13 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
 
         switch (code) {
             case FILES:
-                if (!state.config.internal) return null;
+                if (!state.config.internal || isCallerLspatch()) return null;
                 return new File(state.internalRoot, "files");
             case CACHE:
-                if (!state.config.internal) return null;
+                if (!state.config.internal || isCallerLspatch()) return null;
                 return new File(state.internalRoot, "cache");
             case NOBACKUP:
-                if (!state.config.internal) return null;
+                if (!state.config.internal || isCallerLspatch()) return null;
                 return new File(state.internalRoot, "no_backup");
             case DBDIR:
                 if (!state.config.internal) return null;
@@ -412,7 +417,7 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
             case GETDIR: {
                 if (!state.config.internal) return null;
                 String n = (String) a0;
-                if (n == null || KEEP_PRIVATE_DIRS.contains(n)) return null;
+                if (n == null || KEEP_PRIVATE_DIRS.contains(n) || isCallerLspatch()) return null;
                 return new File(state.internalRoot, "app_" + n);
             }
             case DBPATH: {
@@ -568,12 +573,54 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
         kinds.add(kind);
     }
 
+    private static boolean isCallerLspatch() {
+        try {
+            StackTraceElement[] st = Thread.currentThread().getStackTrace();
+            for (StackTraceElement e : st) {
+                String cn = e.getClassName();
+                if (cn.contains("lspatch") || cn.contains("org.lsposed")) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    private static boolean isPrivateSubpath(String rest) {
+        if (rest == null || rest.isEmpty()) return false;
+        for (String k : KEEP_PRIVATE_SUBPATHS) {
+            if (rest.equals(k) || rest.startsWith(k + "/")) return true;
+        }
+        // Blanket protection: LSPatch origin APKs, loader caches, and embedded DEX/APK binaries
+        // in private app storage must NEVER be redirected to shared storage (noexec restriction).
+        if (rest.contains("/lspatch") || rest.endsWith(".apk") || rest.contains(".apk/")) {
+            return true;
+        }
+        return false;
+    }
+
+    private static boolean isPrivateDataPath(ActiveState state, String p) {
+        if (state == null || p == null || p.isEmpty() || p.charAt(0) != '/') return false;
+        for (int i = 0; i < state.from.length; i++) {
+            if (state.kind[i] != K_INT) continue;
+            String f = state.from[i];
+            if (!p.startsWith(f)) continue;
+            int n = f.length();
+            if (p.length() > n && p.charAt(n) != '/') continue;
+            String rest = p.substring(n);
+            if (isPrivateSubpath(rest)) return true;
+        }
+        return false;
+    }
+
     /** Maps a standard path to its real location; anything else is returned unchanged. */
     static String rewrite(String p) {
         if (p == null || p.isEmpty() || p.indexOf('\0') >= 0) return p;
         checkFreshness();
         ActiveState state = sState;
         if (state == null || !state.active) return p;
+        if (isPrivateDataPath(state, p)) return p;
         String r = applyRules(state, p);
         return r != null ? r : rewriteStd(state, p);
     }
@@ -584,6 +631,7 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
         checkFreshness();
         ActiveState state = sState;
         if (state == null || !state.active) return p;
+        if (isPrivateDataPath(state, p)) return p;
         String r = applyRules(state, p);
         if (r != null) return r;
         return state.fake ? rewriteStd(state, p) : p;
@@ -606,8 +654,7 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
             int n = f.length();
             if (p.length() > n && p.charAt(n) != '/') continue;
             String rest = p.substring(n);
-            for (String k : KEEP_PRIVATE_SUBPATHS)
-                if (rest.equals(k) || rest.startsWith(k + "/")) return p;
+            if (isPrivateSubpath(rest)) return p;
             return (state.kind[i] == K_OBB ? state.to[i] + "/obb" : state.to[i]) + rest;
         }
         return p;

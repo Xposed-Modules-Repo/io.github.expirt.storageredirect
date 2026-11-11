@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.expirt.storageredirect"
     android:versionCode="17"
-    android:versionName="2.18">
+    android:versionName="2.21">
     <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="33" />
     <!--
       MANAGE_EXTERNAL_STORAGE (Android 11+ / API 30+):
