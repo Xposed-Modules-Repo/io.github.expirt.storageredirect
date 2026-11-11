@@ -98,7 +98,7 @@ Open an app's settings -> **Backups** (or the global **Backups** tab in the main
 
 ## Use
 
-1. Install `release/StorageRedirect-v2.21.apk`, open it, grant all-files access, configure defaults and/or per-app rules.
+1. Install `release/StorageRedirect-v2.22.apk`, open it, grant all-files access, configure defaults and/or per-app rules.
 2. Patch the target app with LSPatch and embed this module.
 3. The **target app** needs all-files access (`MANAGE_EXTERNAL_STORAGE`, Android 11+).
 4. Rules and overrides take effect immediately with live reload.
@@ -111,7 +111,7 @@ Open an app's settings -> **Backups** (or the global **Backups** tab in the main
 
 # Build APK:
 export KEYSTORE_PASS="your_password"
-./build.sh        # -> Builds signed release/StorageRedirect-v2.21.apk
+./build.sh        # -> Builds signed release/StorageRedirect-v2.22.apk
 ```
 
 ## Security Architecture

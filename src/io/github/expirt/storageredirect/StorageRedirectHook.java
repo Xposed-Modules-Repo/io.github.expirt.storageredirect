@@ -6,6 +6,10 @@ import android.system.ErrnoException;
 import android.system.OsConstants;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.ArrayList;
@@ -36,12 +40,13 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
 
     /** getDir() names left in the real private dir (WebView needs a real private dir, native libs, LSPatch origins). */
     private static final Set<String> KEEP_PRIVATE_DIRS = new HashSet<>(Arrays.asList(
-            "webview", "lib", "libs", "app_libs", "lspatch"
+            "webview", "lib", "libs", "app_libs", "lspatch", "decompressed"
     ));
     /** Sub-paths of the private data dir that are never redirected (dex/odex, native libs, LSPatch origin APKs). */
     private static final String[] KEEP_PRIVATE_SUBPATHS = {
             "/code_cache", "/app_webview", "/lib", "/app_libs", "/app_lib",
-            "/cache/lspatch", "/files/lspatch", "/lspatch"
+            "/cache/lspatch", "/files/lspatch", "/lspatch",
+            "/files/decompressed", "/decompressed"
     };
     private static final String TAG = "[StorageRedirect] ";
 
@@ -191,6 +196,7 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
             hookFileConstructors();
             hookSinks(cl);
             hookBlock(cl);
+            hookNativeLibraryLoaders(cl);
 
             ActiveState state = sState;
             XposedBridge.log(TAG + "active for " + sPkg
@@ -592,9 +598,16 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
         for (String k : KEEP_PRIVATE_SUBPATHS) {
             if (rest.equals(k) || rest.startsWith(k + "/")) return true;
         }
-        // Blanket protection: LSPatch origin APKs, loader caches, and embedded DEX/APK binaries
-        // in private app storage must NEVER be redirected to shared storage (noexec restriction).
-        if (rest.contains("/lspatch") || rest.endsWith(".apk") || rest.contains(".apk/")) {
+        // Blanket protection: Native shared libraries (.so), Meta Superpack archives (.spo),
+        // runtime decompressed native directories, native library prefixes (lib-*, lib/*),
+        // LSPatch origin APKs, loader caches, and embedded DEX/APK binaries in private app storage
+        // must NEVER be redirected to shared storage (Linux kernel noexec and Android linker
+        // namespace clns restrictions).
+        if (rest.contains("/decompressed") || rest.endsWith(".so") || rest.contains(".so/")
+                || rest.contains(".so.") || rest.endsWith(".spo") || rest.contains(".spo/")
+                || rest.contains("/lib-") || rest.contains("/lib/") || rest.endsWith("/lib")
+                || rest.contains("/app_lib") || rest.contains("/lspatch")
+                || rest.endsWith(".apk") || rest.contains(".apk/")) {
             return true;
         }
         return false;
@@ -621,6 +634,14 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
         ActiveState state = sState;
         if (state == null || !state.active) return p;
         if (isPrivateDataPath(state, p)) return p;
+        // If path is under redirected internal storage but is a native library or decompressed folder,
+        // redirect it BACK to real internal storage so dlopen() and linker namespaces succeed!
+        if (state.own != null && state.own.length > 0 && state.own[0] != null && sDataDir != null) {
+            String rest = under(p, state.own[0]);
+            if (rest != null && isPrivateSubpath(rest)) {
+                return sDataDir + rest;
+            }
+        }
         String r = applyRules(state, p);
         return r != null ? r : rewriteStd(state, p);
     }
@@ -632,6 +653,12 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
         ActiveState state = sState;
         if (state == null || !state.active) return p;
         if (isPrivateDataPath(state, p)) return p;
+        if (state.own != null && state.own.length > 0 && state.own[0] != null && sDataDir != null) {
+            String rest = under(p, state.own[0]);
+            if (rest != null && isPrivateSubpath(rest)) {
+                return sDataDir + rest;
+            }
+        }
         String r = applyRules(state, p);
         if (r != null) return r;
         return state.fake ? rewriteStd(state, p) : p;
@@ -853,6 +880,108 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
             XposedHelpers.findAndHookConstructor(File.class, File.class, String.class, h);
         } catch (Throwable t) {
             XposedBridge.log(t);
+        }
+    }
+
+    // ------------------------------------------ native library loading protection
+    private static void hookNativeLibraryLoaders(ClassLoader cl) {
+        XC_MethodHook loadHook = new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) {
+                if (Boolean.TRUE.equals(sInHook.get())) return;
+                sInHook.set(Boolean.TRUE);
+                try {
+                    Object[] a = param.args;
+                    if (a == null || a.length == 0) return;
+                    int pathIndex = -1;
+                    for (int i = 0; i < a.length; i++) {
+                        if (a[i] instanceof String) {
+                            pathIndex = i;
+                            break;
+                        }
+                    }
+                    if (pathIndex < 0) return;
+                    String path = (String) a[pathIndex];
+                    if (path == null || path.isEmpty()) return;
+                    String safe = fixNativeLibraryPath(path);
+                    if (safe != null && !safe.equals(path)) {
+                        a[pathIndex] = safe;
+                    }
+                } catch (Throwable ignored) {
+                } finally {
+                    sInHook.set(Boolean.FALSE);
+                }
+            }
+        };
+
+        try {
+            XposedHelpers.findAndHookMethod(System.class, "load", String.class, loadHook);
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + "Failed to hook System.load: " + t);
+        }
+
+        try {
+            XposedHelpers.findAndHookMethod(Runtime.class, "load", String.class, loadHook);
+        } catch (Throwable t) {
+            XposedBridge.log(TAG + "Failed to hook Runtime.load: " + t);
+        }
+
+        try {
+            XposedHelpers.findAndHookMethod(Runtime.class, "load0", Class.class, String.class, loadHook);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static String fixNativeLibraryPath(String path) {
+        ActiveState state = sState;
+        if (state == null || !state.active || sDataDir == null) return path;
+        String rest = null;
+        if (state.own != null && state.own.length > 0 && state.own[0] != null) {
+            rest = under(path, state.own[0]);
+        }
+        if (rest == null && state.storageRoot != null) {
+            rest = under(path, state.storageRoot.getAbsolutePath());
+        }
+        if (rest == null && sSd != null) {
+            rest = under(path, sSd);
+        }
+        if (rest != null) {
+            File target = new File(sDataDir, rest.startsWith("/") ? rest.substring(1) : rest);
+            File source = new File(path);
+            if (source.isFile()) {
+                if (!target.exists() || target.length() != source.length()) {
+                    copyNativeFile(source, target);
+                }
+            }
+            return target.getAbsolutePath();
+        }
+        return path;
+    }
+
+    private static void copyNativeFile(File src, File dst) {
+        try {
+            File parent = dst.getParentFile();
+            if (parent != null && !parent.isDirectory()) {
+                parent.mkdirs();
+            }
+            InputStream in = new FileInputStream(src);
+            try {
+                OutputStream out = new FileOutputStream(dst);
+                try {
+                    byte[] buf = new byte[32 * 1024];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                    }
+                } finally {
+                    out.close();
+                }
+            } finally {
+                in.close();
+            }
+            dst.setReadable(true, false);
+            dst.setExecutable(true, false);
+        } catch (Throwable ignored) {
         }
     }
 
