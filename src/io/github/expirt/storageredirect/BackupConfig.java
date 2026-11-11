@@ -8,15 +8,22 @@ import java.util.Properties;
 /** Per-app backup settings: <sdcard>/CustomData/.config/backup/<package>.properties */
 final class BackupConfig {
 
-    static final String DEF_DIR = "CustomData/Backups/{pkg}";
+    static final String DEF_DIR = "Android/media/uninviting/backup/{pkg}";
+    static final String LEGACY_DEF_DIR = "CustomData/Backups/{pkg}";
     static final String DEF_NAME = "{pkg}-{date}-{time}";
 
-    boolean internal = true;     // back up the redirected internal-data folder
-    boolean external = false;    // back up the redirected app-external folder
-    boolean storage = false;     // back up the redirected main-storage folder
-    int level = 6;               // zip deflate level: 0 none, 1 fast, 6 normal, 9 max
-    String dir = DEF_DIR;        // where backups are saved (absolute, or relative to storage root)
-    String name = DEF_NAME;      // file-name template: {pkg} {app} {ver} {date} {time}
+    boolean internal = true;          // back up the redirected internal-data folder
+    boolean internalFiles = true;       // internal /files (app documents and storage)
+    boolean internalDatabases = true;   // internal /databases (SQLite database files)
+    boolean internalSharedPrefs = true; // internal /shared_prefs (app preferences)
+    boolean internalNoBackup = true;    // internal /no_backup (no_backup directory)
+    boolean internalCache = false;      // internal /cache (temporary cache files)
+    boolean internalOther = true;       // any other files/folders in internal data
+    boolean external = false;         // back up the redirected app-external folder
+    boolean storage = false;          // back up the redirected main-storage folder
+    int level = 6;                    // zip deflate level: 0 none, 1 fast, 6 normal, 9 max
+    String dir = DEF_DIR;             // where backups are saved (absolute, or relative to storage root)
+    String name = DEF_NAME;           // file-name template: {pkg} {app} {ver} {date} {time}
 
     static File file(String sd, String pkg) {
         if (pkg == null || !RedirectConfig.isValidPackageName(pkg)) {
@@ -40,6 +47,12 @@ final class BackupConfig {
             Properties p = new Properties();
             p.load(in);
             c.internal = bool(p, "internal", c.internal);
+            c.internalFiles = bool(p, "internal.files", c.internalFiles);
+            c.internalDatabases = bool(p, "internal.databases", c.internalDatabases);
+            c.internalSharedPrefs = bool(p, "internal.shared_prefs", c.internalSharedPrefs);
+            c.internalNoBackup = bool(p, "internal.no_backup", c.internalNoBackup);
+            c.internalCache = bool(p, "internal.cache", c.internalCache);
+            c.internalOther = bool(p, "internal.other", c.internalOther);
             c.external = bool(p, "external", c.external);
             c.storage = bool(p, "storage", c.storage);
             try { c.level = Integer.parseInt(p.getProperty("level", "6").trim()); } catch (Throwable ignored) { }
@@ -62,6 +75,12 @@ final class BackupConfig {
             if (!d.exists() && !d.mkdirs() && !d.exists()) return false;
             Properties p = new Properties();
             p.setProperty("internal", String.valueOf(internal));
+            p.setProperty("internal.files", String.valueOf(internalFiles));
+            p.setProperty("internal.databases", String.valueOf(internalDatabases));
+            p.setProperty("internal.shared_prefs", String.valueOf(internalSharedPrefs));
+            p.setProperty("internal.no_backup", String.valueOf(internalNoBackup));
+            p.setProperty("internal.cache", String.valueOf(internalCache));
+            p.setProperty("internal.other", String.valueOf(internalOther));
             p.setProperty("external", String.valueOf(external));
             p.setProperty("storage", String.valueOf(storage));
             p.setProperty("level", String.valueOf(level));

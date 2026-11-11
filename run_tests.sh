@@ -21,6 +21,7 @@ javac -source 8 -target 8 -Xlint:-options -bootclasspath "$AJ" -cp "stubs" -d "$
   src/io/github/expirt/storageredirect/Glob.java \
   src/io/github/expirt/storageredirect/PathEngine.java \
   src/io/github/expirt/storageredirect/RedirectConfig.java \
+  src/io/github/expirt/storageredirect/BackupConfig.java \
   src/io/github/expirt/storageredirect/Backups.java \
   test/io/github/expirt/storageredirect/PathEngineTest.java \
   test/io/github/expirt/storageredirect/SecurityTest.java

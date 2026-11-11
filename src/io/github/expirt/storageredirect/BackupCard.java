@@ -95,6 +95,18 @@ final class BackupCard {
         inc.add(toggleRow("Main storage folder", bc.storage, 2));
         root.addView(ui.group(inc));
 
+        // What to backup from internal storage (files, databases, shared_prefs, no_backup, cache)
+        RedirectConfig curRc = RedirectConfig.load(sd, pkg);
+        File intDir = resolveFolder(curRc.internalPath, "internal");
+        root.addView(ui.sectionLabel("What to back up from internal storage"));
+        List<View> subInc = new ArrayList<View>();
+        subInc.add(internalToggleRow("files", "Application files, documents, and assets", bc.internalFiles, 0, intDir));
+        subInc.add(internalToggleRow("databases", "SQLite databases and tables", bc.internalDatabases, 1, intDir));
+        subInc.add(internalToggleRow("shared_prefs", "Application preferences and settings (XML)", bc.internalSharedPrefs, 2, intDir));
+        subInc.add(internalToggleRow("no_backup", "Files excluded from system cloud backup", bc.internalNoBackup, 3, intDir));
+        subInc.add(internalToggleRow("cache", "Temporary files and network/image cache", bc.internalCache, 4, intDir));
+        root.addView(ui.group(subInc));
+
         // Location & Template
         root.addView(ui.sectionLabel("Backup destination & name"));
         List<View> where = new ArrayList<View>();
@@ -160,7 +172,7 @@ final class BackupCard {
     void refresh() {
         applyStatus();
         listBox.removeAllViews();
-        final List<Backups.Item> items = Backups.list(bc.backupDir(sd, pkg));
+        final List<Backups.Item> items = Backups.listForPackage(sd, pkg, bc);
         if (items.isEmpty()) {
             LinearLayout none = ui.card(ui.c.surfaceContainerLow, 18f);
             none.setGravity(Gravity.CENTER);
@@ -360,15 +372,52 @@ final class BackupCard {
     private List<Backups.Source> sources() {
         RedirectConfig rc = RedirectConfig.load(sd, pkg);
         List<Backups.Source> out = new ArrayList<Backups.Source>();
-        if (bc.internal && rc.internal) add(out, "internal", rc.internalPath);
-        if (bc.external && rc.external) add(out, "external", rc.externalPath);
-        if (bc.storage && rc.storage) add(out, "storage", rc.storagePath);
+        if (bc.internal) {
+            File d = resolveFolder(rc.internalPath, "internal");
+            if (d != null && d.isDirectory()) {
+                java.util.Set<String> excluded = new java.util.HashSet<String>();
+                if (!bc.internalFiles) excluded.add("files");
+                if (!bc.internalDatabases) excluded.add("databases");
+                if (!bc.internalSharedPrefs) excluded.add("shared_prefs");
+                if (!bc.internalNoBackup) excluded.add("no_backup");
+                if (!bc.internalCache) excluded.add("cache");
+                out.add(new Backups.Source("internal", d, excluded));
+            }
+        }
+        if (bc.external) {
+            File d = resolveFolder(rc.externalPath, "external");
+            if (d != null && d.isDirectory()) out.add(new Backups.Source("external", d));
+        }
+        if (bc.storage) {
+            File d = resolveFolder(rc.storagePath, "storage");
+            if (d != null && d.isDirectory()) out.add(new Backups.Source("storage", d));
+        }
         return out;
     }
 
-    private void add(List<Backups.Source> out, String kind, String path) {
-        File d = RedirectConfig.resolve(sd, pkg, path);
-        if (d.isDirectory()) out.add(new Backups.Source(kind, d));
+    private File resolveFolder(String path, String kind) {
+        if (path != null && !path.trim().isEmpty()) {
+            File d = RedirectConfig.resolve(sd, pkg, path);
+            if (d.isDirectory()) return d;
+        }
+        // Fallback detection for existing redirected directories
+        if ("internal".equals(kind)) {
+            File f1 = new File(sd, ".fnrod/data$/" + pkg);
+            if (f1.isDirectory()) return f1;
+            File f2 = new File(sd, "CustomData/" + pkg + "/internal");
+            if (f2.isDirectory()) return f2;
+        } else if ("external".equals(kind)) {
+            File f1 = new File(sd, ".fnrod/data/" + pkg);
+            if (f1.isDirectory()) return f1;
+            File f2 = new File(sd, "CustomData/" + pkg + "/external");
+            if (f2.isDirectory()) return f2;
+        } else if ("storage".equals(kind)) {
+            File f1 = new File(sd, ".fnrod");
+            if (f1.isDirectory()) return f1;
+            File f2 = new File(sd, "CustomData/" + pkg + "/storage");
+            if (f2.isDirectory()) return f2;
+        }
+        return null;
     }
 
     private void restoreDialog(final Backups.Item it) {
@@ -513,6 +562,50 @@ final class BackupCard {
                 if (which == 0) bc.internal = on;
                 else if (which == 1) bc.external = on;
                 else bc.storage = on;
+                bc.save(sd, pkg);
+            }
+        });
+        row.setClickable(true);
+        row.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (s.isEnabled()) s.toggle();
+            }
+        });
+        row.addView(s);
+        return row;
+    }
+
+    private View internalToggleRow(String folderName, String desc, boolean init, final int which, File dir) {
+        LinearLayout row = ui.hbox();
+        LinearLayout tx = ui.vbox();
+
+        String countStr = "";
+        if (dir != null && dir.isDirectory()) {
+            File sub = new File(dir, folderName);
+            if (sub.isDirectory()) {
+                File[] children = sub.listFiles();
+                int cnt = children != null ? children.length : 0;
+                countStr = " (" + cnt + " " + (cnt == 1 ? "item" : "items") + ")";
+            }
+        }
+
+        tx.addView(ui.text(folderName + countStr, 15, ui.c.onSurface, true));
+        TextView d = ui.text(desc, 12, ui.c.onSurfaceVariant, false);
+        d.setPadding(0, ui.dp(2), ui.dp(12), 0);
+        tx.addView(d);
+        row.addView(tx, new LinearLayout.LayoutParams(0, -2, 1f));
+
+        final Switch s = ui.toggle(init);
+        s.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override public void onCheckedChanged(CompoundButton v, boolean on) {
+                if (building) return;
+                switch (which) {
+                    case 0: bc.internalFiles = on; break;
+                    case 1: bc.internalDatabases = on; break;
+                    case 2: bc.internalSharedPrefs = on; break;
+                    case 3: bc.internalNoBackup = on; break;
+                    case 4: bc.internalCache = on; break;
+                }
                 bc.save(sd, pkg);
             }
         });

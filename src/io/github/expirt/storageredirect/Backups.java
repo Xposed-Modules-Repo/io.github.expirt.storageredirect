@@ -17,11 +17,13 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.Enumeration;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -37,7 +39,17 @@ final class Backups {
     static final class Source {
         final String kind;   // internal | external | storage
         final File dir;
-        Source(String kind, File dir) { this.kind = kind; this.dir = dir; }
+        final Set<String> excludedNames; // child folder names to exclude
+
+        Source(String kind, File dir) {
+            this(kind, dir, null);
+        }
+
+        Source(String kind, File dir, Set<String> excludedNames) {
+            this.kind = kind;
+            this.dir = dir;
+            this.excludedNames = excludedNames;
+        }
     }
 
     static final class Item {
@@ -111,6 +123,151 @@ final class Backups {
         return out;
     }
 
+    /**
+     * Finds all backup archives across all known backup directories and subdirectories.
+     * Deduplicates by canonical path and sorts newest first.
+     */
+    static List<Item> listAll(String sd) {
+        Set<String> seen = new HashSet<String>();
+        List<Item> all = new ArrayList<Item>();
+        List<File> roots = new ArrayList<File>();
+
+        // 1. Configured uninviting backup root
+        File cfgDir = RedirectConfig.dir(sd);
+        roots.add(new File(cfgDir, "backup"));
+
+        // 2. Standard and legacy paths
+        roots.add(new File(sd, "Android/media/uninviting/backup"));
+        roots.add(new File(sd, "android/media/uninviting/backup"));
+        roots.add(new File(sd, "CustomData/Backups"));
+        roots.add(new File(sd, "backup"));
+
+        // 3. Scan per-app backup configs to see if custom dirs were defined
+        File backupConfigs = new File(cfgDir, "backup");
+        if (backupConfigs.isDirectory()) {
+            File[] cfs = backupConfigs.listFiles();
+            if (cfs != null) {
+                for (File cf : cfs) {
+                    if (cf.isFile() && cf.getName().endsWith(".properties")) {
+                        String pkgName = cf.getName().substring(0, cf.getName().length() - 11);
+                        try {
+                            BackupConfig bc = BackupConfig.load(sd, pkgName);
+                            File bDir = bc.backupDir(sd, pkgName);
+                            if (bDir != null && bDir.isDirectory()) roots.add(bDir);
+                        } catch (Throwable ignored) {}
+                    }
+                }
+            }
+        }
+
+        for (File root : roots) {
+            collectBackupsRecursive(root, seen, all, 0, 2);
+        }
+
+        Collections.sort(all, new Comparator<Item>() {
+            @Override public int compare(Item a, Item b) {
+                return a.time == b.time ? a.name.compareToIgnoreCase(b.name) : (a.time < b.time ? 1 : -1);
+            }
+        });
+        return all;
+    }
+
+    private static void collectBackupsRecursive(File dir, Set<String> seen, List<Item> out, int depth, int maxDepth) {
+        if (dir == null || !dir.isDirectory()) return;
+        File[] fs = dir.listFiles();
+        if (fs == null) return;
+        for (File f : fs) {
+            if (f.isFile() && f.getName().toLowerCase(Locale.ROOT).endsWith(".zip")) {
+                try {
+                    String canon = f.getCanonicalPath();
+                    if (seen.add(canon)) {
+                        Item it = new Item();
+                        it.file = f;
+                        String n = f.getName();
+                        it.name = n.substring(0, n.length() - 4);
+                        it.size = f.length();
+                        it.time = f.lastModified();
+                        out.add(it);
+                    }
+                } catch (Throwable ignored) {}
+            } else if (f.isDirectory() && depth < maxDepth) {
+                collectBackupsRecursive(f, seen, out, depth + 1, maxDepth);
+            }
+        }
+    }
+
+    /**
+     * Finds all backups belonging to a specific package name across candidate locations.
+     */
+    static List<Item> listForPackage(String sd, String pkg, BackupConfig bc) {
+        if (pkg == null) return Collections.emptyList();
+        Set<String> seen = new HashSet<String>();
+        List<Item> all = new ArrayList<Item>();
+        List<File> candidates = new ArrayList<File>();
+
+        if (bc != null) {
+            try { candidates.add(bc.backupDir(sd, pkg)); } catch (Throwable ignored) {}
+        }
+        File cfgDir = RedirectConfig.dir(sd);
+        candidates.add(new File(cfgDir, "backup/" + pkg));
+        candidates.add(new File(sd, "Android/media/uninviting/backup/" + pkg));
+        candidates.add(new File(sd, "android/media/uninviting/backup/" + pkg));
+        candidates.add(new File(sd, "CustomData/Backups/" + pkg));
+        candidates.add(new File(sd, "backup/" + pkg));
+
+        for (File dir : candidates) {
+            if (dir == null || !dir.isDirectory()) continue;
+            for (Item it : list(dir)) {
+                try {
+                    String canon = it.file.getCanonicalPath();
+                    if (seen.add(canon)) {
+                        all.add(it);
+                    }
+                } catch (Throwable ignored) {}
+            }
+        }
+
+        // Also check if there are backups in root backup folders named with the package prefix
+        File[] parentRoots = {
+            new File(cfgDir, "backup"),
+            new File(sd, "Android/media/uninviting/backup"),
+            new File(sd, "android/media/uninviting/backup"),
+            new File(sd, "CustomData/Backups")
+        };
+        for (File pr : parentRoots) {
+            if (pr.isDirectory()) {
+                File[] fs = pr.listFiles();
+                if (fs != null) {
+                    for (File f : fs) {
+                        if (f.isFile() && f.getName().toLowerCase(Locale.ROOT).endsWith(".zip")) {
+                            if (f.getName().toLowerCase(Locale.ROOT).contains(pkg.toLowerCase(Locale.ROOT))) {
+                                try {
+                                    String canon = f.getCanonicalPath();
+                                    if (seen.add(canon)) {
+                                        Item it = new Item();
+                                        it.file = f;
+                                        String n = f.getName();
+                                        it.name = n.substring(0, n.length() - 4);
+                                        it.size = f.length();
+                                        it.time = f.lastModified();
+                                        all.add(it);
+                                    }
+                                } catch (Throwable ignored) {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Collections.sort(all, new Comparator<Item>() {
+            @Override public int compare(Item a, Item b) {
+                return a.time == b.time ? a.name.compareToIgnoreCase(b.name) : (a.time < b.time ? 1 : -1);
+            }
+        });
+        return all;
+    }
+
     /** Returns null on success, otherwise a short error message. */
     static String rename(Item it, String newName) {
         String base = sanitize(newName);
@@ -159,7 +316,7 @@ final class Backups {
 
             for (Source s : sources) {
                 if (p.cancelled()) break;
-                addTree(zos, s.dir, s.kind + "/", skip, files, bytes, p);
+                addTree(zos, s.dir, s.kind + "/", skip, files, bytes, p, s.excludedNames, true);
             }
             zos.close();
             zos = null;
@@ -174,7 +331,8 @@ final class Backups {
     }
 
     private static void addTree(ZipOutputStream zos, File dir, String prefix, String skip,
-                                int[] files, long[] bytes, Progress p) throws IOException {
+                                int[] files, long[] bytes, Progress p,
+                                Set<String> excludedNames, boolean isRoot) throws IOException {
         File[] fs = dir.listFiles();
         if (fs == null) return;
         Arrays.sort(fs);
@@ -183,12 +341,15 @@ final class Backups {
             if (p.cancelled()) return;
             String path = f.getAbsolutePath();
             if (path.equals(skip) || path.startsWith(skip + "/")) continue;   // never back up the backups
+            if (isRoot && excludedNames != null && excludedNames.contains(f.getName().toLowerCase(Locale.ROOT))) {
+                continue; // Skip user-excluded subdirectory or file (e.g. cache, databases, etc.)
+            }
             if (f.isDirectory()) {
                 ZipEntry de = new ZipEntry(prefix + f.getName() + "/");
                 de.setTime(f.lastModified());
                 zos.putNextEntry(de);
                 zos.closeEntry();
-                addTree(zos, f, prefix + f.getName() + "/", skip, files, bytes, p);
+                addTree(zos, f, prefix + f.getName() + "/", skip, files, bytes, p, null, false);
             } else if (f.isFile()) {
                 InputStream in = null;
                 try {

@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.res.ColorStateList;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
@@ -16,6 +17,7 @@ import android.view.ViewGroup;
 import android.widget.AbsListView;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -35,6 +37,7 @@ import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -506,19 +509,7 @@ public class MainActivity extends Activity {
         if (backupsListHolder == null) return;
         backupsListHolder.removeAllViews();
 
-        File rootBackupDir = new File(sd, "CustomData/Backups");
-        List<Backups.Item> allFound = new ArrayList<Backups.Item>();
-
-        if (rootBackupDir.isDirectory()) {
-            File[] pkgDirs = rootBackupDir.listFiles();
-            if (pkgDirs != null) {
-                for (File d : pkgDirs) {
-                    if (d.isDirectory()) {
-                        allFound.addAll(Backups.list(d));
-                    }
-                }
-            }
-        }
+        List<Backups.Item> allFound = Backups.listAll(sd);
 
         if (allFound.isEmpty()) {
             LinearLayout none = ui.card(ui.c.surfaceContainerLow, 20f);
@@ -546,19 +537,45 @@ public class MainActivity extends Activity {
 
         DateFormat df = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT);
         List<View> rows = new ArrayList<View>();
+        PackageManager pm = getPackageManager();
+
         for (final Backups.Item it : allFound) {
             LinearLayout itemRow = ui.vbox();
 
+            // Read backup info if available to get app name and icon
+            Backups.Info info = null;
+            try {
+                info = Backups.readInfo(it.file);
+            } catch (Throwable ignored) {}
+
+            String appTitle = (info != null && info.app != null && !info.app.isEmpty()) ? info.app : it.name;
+            final String pkgName = (info != null && info.pkg != null) ? info.pkg : null;
+
+            Drawable appIcon = null;
+            if (pkgName != null && pm != null) {
+                try {
+                    appIcon = pm.getApplicationIcon(pkgName);
+                } catch (Throwable ignored) {}
+            }
+
             LinearLayout top = ui.hbox();
-            ImageView zipIcon = new ImageView(this);
-            zipIcon.setImageDrawable(Phosphor.get(Phosphor.FILE_ZIP, ui.c.primary, ui.dp(24)));
-            top.addView(zipIcon, new LinearLayout.LayoutParams(ui.dp(28), ui.dp(28)));
+            ImageView iconView = new ImageView(this);
+            if (appIcon != null) {
+                iconView.setImageDrawable(appIcon);
+            } else {
+                iconView.setImageDrawable(Phosphor.get(Phosphor.FILE_ZIP, ui.c.primary, ui.dp(26)));
+            }
+            top.addView(iconView, new LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)));
 
             LinearLayout nameBox = ui.vbox();
             nameBox.setPadding(ui.dp(12), 0, 0, 0);
-            nameBox.addView(ui.text(it.name, 15, ui.c.onSurface, true));
-            nameBox.addView(ui.text(Formatter.formatShortFileSize(this, it.size) + "  \u00B7  "
-                    + df.format(new Date(it.time)), 12, ui.c.onSurfaceVariant, false));
+            nameBox.addView(ui.text(appTitle, 15, ui.c.onSurface, true));
+
+            String subInfo = Formatter.formatShortFileSize(this, it.size) + "  \u00B7  " + df.format(new Date(it.time));
+            if (pkgName != null) {
+                subInfo = pkgName + "  \u00B7  " + subInfo;
+            }
+            nameBox.addView(ui.text(subInfo, 12, ui.c.onSurfaceVariant, false));
             top.addView(nameBox, new LinearLayout.LayoutParams(0, -2, 1f));
             itemRow.addView(top);
 
@@ -566,11 +583,42 @@ public class MainActivity extends Activity {
             actions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
             actions.setPadding(0, ui.dp(8), 0, 0);
 
+            final Backups.Info finalInfo = info;
+            if (finalInfo != null && finalInfo.pkg != null && !finalInfo.sources.isEmpty()) {
+                TextView restoreBtn = ui.buttonWithIcon("Restore", Phosphor.RESTORE, NeoUi.TONAL, new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        showGlobalRestoreDialog(it, finalInfo);
+                    }
+                });
+                restoreBtn.setMinHeight(ui.dp(36));
+                restoreBtn.setTextSize(12);
+                actions.addView(restoreBtn);
+            }
+
+            TextView renameBtn = ui.buttonWithIcon("Rename", Phosphor.PENCIL, NeoUi.TEXT, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    final EditText e = ui.field(it.name, "Backup name");
+                    e.setSelectAllOnFocus(true);
+                    ui.dialog(MainActivity.this, Phosphor.PENCIL, "Rename backup", null, e, "Save", new Runnable() {
+                        @Override public void run() {
+                            String err = Backups.rename(it, e.getText().toString());
+                            if (err != null) Toast.makeText(MainActivity.this, err, Toast.LENGTH_SHORT).show();
+                            loadGlobalBackups();
+                        }
+                    }, "Cancel");
+                }
+            });
+            renameBtn.setMinHeight(ui.dp(36));
+            renameBtn.setTextSize(12);
+            actions.addView(renameBtn);
+
             TextView delBtn = ui.buttonWithIcon("Delete", Phosphor.TRASH, NeoUi.TEXT_ERROR, new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     ui.dialog(MainActivity.this, Phosphor.TRASH, "Delete backup?",
-                            "Delete " + it.name + ".zip permanently?", null, "Delete", new Runnable() {
+                            "Delete \u201C" + it.name + ".zip\u201D permanently?", null, "Delete", new Runnable() {
                         @Override public void run() {
                             Backups.delete(it);
                             loadGlobalBackups();
@@ -586,6 +634,59 @@ public class MainActivity extends Activity {
             rows.add(itemRow);
         }
         backupsListHolder.addView(ui.group(rows));
+    }
+
+    private void showGlobalRestoreDialog(final Backups.Item it, final Backups.Info info) {
+        final String bPkg = info.pkg;
+        StringBuilder sb = new StringBuilder("Restore will extract files back into the original folders:\n");
+        for (Map.Entry<String, String> e : info.sources.entrySet()) {
+            sb.append("\n\u2022 ").append(e.getKey()).append(" \u2192 ").append(e.getValue());
+        }
+        sb.append("\n\nThis app\u2019s redirection paths will also be synchronized. Force stop the app before restoring.");
+
+        final CheckBox clean = new CheckBox(this);
+        clean.setText("Delete existing files in those folders first");
+        clean.setTextColor(ui.c.onSurface);
+        clean.setButtonTintList(ColorStateList.valueOf(ui.c.primary));
+        clean.setPadding(ui.dp(4), ui.dp(12), 0, 0);
+
+        ui.dialog(this, Phosphor.RESTORE, "Restore " + it.name + "?", sb.toString(), clean, "Restore", new Runnable() {
+            @Override
+            public void run() {
+                Toast.makeText(MainActivity.this, "Restoring backup\u2026", Toast.LENGTH_SHORT).show();
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        String msg;
+                        try {
+                            Backups.Result res = Backups.restore(it.file, info, clean.isChecked(), sd, new Backups.Progress() {
+                                @Override public void onProgress(int f, long b) {}
+                                @Override public boolean cancelled() { return false; }
+                            });
+                            // Also update app's redirection paths to match backup sources
+                            RedirectConfig nrc = RedirectConfig.load(sd, bPkg);
+                            for (Map.Entry<String, String> entry : info.sources.entrySet()) {
+                                if ("internal".equals(entry.getKey())) nrc.internalPath = entry.getValue();
+                                else if ("external".equals(entry.getKey())) nrc.externalPath = entry.getValue();
+                                else if ("storage".equals(entry.getKey())) nrc.storagePath = entry.getValue();
+                            }
+                            nrc.save(sd, bPkg);
+                            msg = "Restored " + (res != null ? res.files : 0) + " files.";
+                        } catch (Throwable t) {
+                            msg = "Restore failed: " + t.getMessage();
+                        }
+                        final String fMsg = msg;
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                Toast.makeText(MainActivity.this, fMsg, Toast.LENGTH_LONG).show();
+                                loadGlobalBackups();
+                            }
+                        });
+                    }
+                }).start();
+            }
+        }, "Cancel");
     }
 
     // =========================================================================
@@ -749,7 +850,7 @@ public class MainActivity extends Activity {
         // About section
         col.addView(ui.sectionLabel("About"));
         List<View> aboutRows = new ArrayList<View>();
-        String verDisplay = "v2.17 (ViviMusic Redesign)";
+        String verDisplay = "v2.18 (ViviMusic & Enhanced Backups)";
         try {
             verDisplay = "v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (Throwable ignored) {}

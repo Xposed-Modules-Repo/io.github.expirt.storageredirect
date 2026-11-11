@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Properties;
+import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -62,6 +63,8 @@ public class SecurityTest {
             testUnauthorizedCleanRestore(tempRoot);
             testSymlinkEscapeProtection(tempRoot);
             testLegitimateBackupRestore(tempRoot);
+            testInternalFolderFiltering(tempRoot);
+            testBackupDiscovery(tempRoot);
 
         } catch (Throwable t) {
             System.err.println("Unexpected fatal error in test suite: " + t);
@@ -422,6 +425,86 @@ public class SecurityTest {
             String content = new String(Files.readAllBytes(restoredFile.toPath()), StandardCharsets.UTF_8);
             check("Restored content matches original", "hello legitimate storage redirect".equals(content));
         }
+    }
+
+    private static void testInternalFolderFiltering(File tempRoot) throws IOException {
+        System.out.println("\n--- Internal Storage Subfolder Filtering Tests ---");
+        File sdDir = new File(tempRoot, "filter_sd");
+        sdDir.mkdirs();
+        File internalDir = new File(sdDir, "internal");
+        internalDir.mkdirs();
+
+        new File(internalDir, "files").mkdirs();
+        new File(internalDir, "databases").mkdirs();
+        new File(internalDir, "cache").mkdirs();
+        new File(internalDir, "shared_prefs").mkdirs();
+        new File(internalDir, "no_backup").mkdirs();
+
+        Files.write(new File(internalDir, "files/data.txt").toPath(), "data".getBytes(StandardCharsets.UTF_8));
+        Files.write(new File(internalDir, "databases/app.db").toPath(), "db".getBytes(StandardCharsets.UTF_8));
+        Files.write(new File(internalDir, "cache/temp.cache").toPath(), "cache".getBytes(StandardCharsets.UTF_8));
+        Files.write(new File(internalDir, "shared_prefs/settings.xml").toPath(), "xml".getBytes(StandardCharsets.UTF_8));
+        Files.write(new File(internalDir, "no_backup/token.dat").toPath(), "token".getBytes(StandardCharsets.UTF_8));
+
+        File backupDir = new File(sdDir, "backup");
+        backupDir.mkdirs();
+
+        Set<String> excluded = new HashSet<String>();
+        excluded.add("cache"); // Exclude cache
+
+        List<Backups.Source> sources = new ArrayList<Backups.Source>();
+        sources.add(new Backups.Source("internal", internalDir, excluded));
+
+        Map<String, String> info = new LinkedHashMap<String, String>();
+        info.put("package", "com.test.filter");
+        info.put("format", "2");
+
+        Backups.Progress noop = new Backups.Progress() {
+            @Override public void onProgress(int f, long b) {}
+            @Override public boolean cancelled() { return false; }
+        };
+
+        File zip = Backups.create(backupDir, "filter_test", sources, 1, info, noop);
+        check("Filter backup archive created", zip != null && zip.exists());
+
+        // Check entries inside zip
+        Set<String> entryNames = new HashSet<String>();
+        ZipFile zf = new ZipFile(zip);
+        try {
+            Enumeration<? extends ZipEntry> en = zf.entries();
+            while (en.hasMoreElements()) {
+                entryNames.add(en.nextElement().getName());
+            }
+        } finally {
+            zf.close();
+        }
+
+        check("Backup includes files/data.txt", entryNames.contains("internal/files/data.txt"));
+        check("Backup includes databases/app.db", entryNames.contains("internal/databases/app.db"));
+        check("Backup includes shared_prefs/settings.xml", entryNames.contains("internal/shared_prefs/settings.xml"));
+        check("Backup includes no_backup/token.dat", entryNames.contains("internal/no_backup/token.dat"));
+        check("Backup excludes cache/temp.cache", !entryNames.contains("internal/cache/temp.cache") && !entryNames.contains("internal/cache/"));
+    }
+
+    private static void testBackupDiscovery(File tempRoot) throws IOException {
+        System.out.println("\n--- Backup Discovery Across Storage Tests ---");
+        File sdDir = new File(tempRoot, "discovery_sd");
+        sdDir.mkdirs();
+        String sd = sdDir.getCanonicalPath();
+
+        File uninvitingBackup = new File(sdDir, "Android/media/uninviting/backup/com.test.disc");
+        uninvitingBackup.mkdirs();
+        createDummyZip(new File(uninvitingBackup, "b1.zip"));
+
+        File customBackup = new File(sdDir, "CustomData/Backups/com.test.disc");
+        customBackup.mkdirs();
+        createDummyZip(new File(customBackup, "b2.zip"));
+
+        List<Backups.Item> forPkg = Backups.listForPackage(sd, "com.test.disc", null);
+        check("listForPackage finds backups in uninviting and CustomData", forPkg.size() >= 2);
+
+        List<Backups.Item> all = Backups.listAll(sd);
+        check("listAll finds all backups across storage roots", all.size() >= 2);
     }
 
     private static void createDummyZip(File zipFile) throws IOException {

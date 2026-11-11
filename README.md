@@ -87,16 +87,18 @@ List **paths** (one per line) that must never be created: absolute, or relative 
 
 With **Show standard paths to the app** on, the app keeps seeing the normal paths (`/data/user/0/<pkg>/...`, `/storage/emulated/0/...`, `/storage/emulated/0/Android/data/<pkg>/...`) while every Java-level file operation on them is redirected to your custom folders underneath (hooks on libcore `Os`, `UnixFileSystem`, `File` natives and SQLite).
 
-## App Backups (per app)
+## App Backups & Universal Discovery
 
-Open an app's settings -> **Backups**. Creates plain `.zip` archives of that app's redirected folders:
-- Multiple backups per app; each has **Restore**, **Rename** and **Delete** buttons.
-- **Restore** extracts the backup back into the exact folders it was made from.
-- Compression: Normal / Maximum / Fast / None. Backup folder is configurable (default `/sdcard/CustomData/Backups/<package>`).
+Open an app's settings -> **Backups** (or the global **Backups** tab in the main navigation):
+- **Universal Backup Discovery:** Automatically discovers backups across all locations (`Android/media/uninviting/backup/`, `CustomData/Backups/`, and custom user paths), displaying app icons, labels, package identifiers, file size, and creation timestamp.
+- **Granular Internal Storage Selection:** Choose exactly what to include from redirected internal data (`files`, `databases`, `shared_prefs`, `no_backup`, `cache`) with live item-count detection.
+- **Full Management:** Direct **Restore**, **Rename**, and **Delete** actions available per-app and globally.
+- **Clean Restore:** Supports deleting existing folder contents prior to extraction or in-place overwrite.
+- **Compression:** Normal / Maximum / Fast / None (store only).
 
 ## Use
 
-1. Install `release/StorageRedirect-v2.17.apk`, open it, grant all-files access, configure defaults and/or per-app rules.
+1. Install `release/StorageRedirect-v2.18.apk`, open it, grant all-files access, configure defaults and/or per-app rules.
 2. Patch the target app with LSPatch and embed this module.
 3. The **target app** needs all-files access (`MANAGE_EXTERNAL_STORAGE`, Android 11+).
 4. Rules and overrides take effect immediately with live reload.
@@ -105,11 +107,11 @@ Open an app's settings -> **Backups**. Creates plain `.zip` archives of that app
 
 ```bash
 # Automated tests:
-./run_tests.sh    # -> Executes PathEngine test suite (58 tests) + Security suite (42 tests) [100 total, 100% pass]
+./run_tests.sh    # -> Executes PathEngine test suite (58 tests) + Security suite (50 tests) [108 total, 100% pass]
 
 # Build APK:
 export KEYSTORE_PASS="your_password"
-./build.sh        # -> Builds signed release/StorageRedirect-v2.17.apk
+./build.sh        # -> Builds signed release/StorageRedirect-v2.18.apk
 ```
 
 ## Security Architecture
