@@ -451,10 +451,16 @@ public class MainActivity extends Activity {
         col.addView(ui.sectionLabel("Default destinations"));
         RedirectConfig defCfg = RedirectConfig.load(sd, null);
         List<View> destRows = new ArrayList<View>();
-        destRows.add(infoRow("Internal data", defCfg.internal ? "Active \u2192 " + defCfg.internalPath : "Disabled"));
-        destRows.add(infoRow("App external data", defCfg.external ? "Active \u2192 " + defCfg.externalPath : "Disabled"));
-        destRows.add(infoRow("Main storage", defCfg.storage ? "Active \u2192 " + defCfg.storagePath : "Disabled"));
-        destRows.add(infoRow("Fake standard paths", defCfg.fakePaths ? "Enabled (Virtual filesystem)" : "Off"));
+        if (defCfg.unified) {
+            destRows.add(infoRow("Unified Sandbox", "Active \u2192 " + defCfg.unifiedPath));
+        }
+        destRows.add(infoRow("Internal data", defCfg.unified ? "Unified \u2192 " + defCfg.unifiedPath + "/data/data/{pkg}"
+                : (defCfg.internal ? "Active \u2192 " + defCfg.internalPath : "Disabled")));
+        destRows.add(infoRow("App external data", defCfg.unified ? "Unified \u2192 " + defCfg.unifiedPath + "/Android/..."
+                : (defCfg.external ? "Active \u2192 " + defCfg.externalPath : "Disabled")));
+        destRows.add(infoRow("Main storage", defCfg.unified ? "Unified \u2192 " + defCfg.unifiedPath
+                : (defCfg.storage ? "Active \u2192 " + defCfg.storagePath : "Disabled")));
+        destRows.add(infoRow("Fake standard paths", (defCfg.unified || defCfg.fakePaths) ? "Enabled (Virtual filesystem)" : "Off"));
         col.addView(ui.group(destRows));
 
         // Path-to-Path Quick Summary

@@ -65,6 +65,7 @@ public class SecurityTest {
             testLegitimateBackupRestore(tempRoot);
             testInternalFolderFiltering(tempRoot);
             testBackupDiscovery(tempRoot);
+            testUnifiedSandboxConfig(tempRoot);
 
         } catch (Throwable t) {
             System.err.println("Unexpected fatal error in test suite: " + t);
@@ -517,6 +518,51 @@ public class SecurityTest {
         } finally {
             zos.close();
         }
+    }
+
+    private static void testUnifiedSandboxConfig(File tempRoot) throws IOException {
+        System.out.println("\n--- Unified Sandbox Configuration & Layout Tests ---");
+        File sdDir = new File(tempRoot, "unified_sd");
+        sdDir.mkdirs();
+        String sd = sdDir.getCanonicalPath();
+
+        RedirectConfig cfg = new RedirectConfig();
+        check("Default unified is false", !cfg.unified);
+        check("Default unifiedPath is Containers/{pkg}", "Containers/{pkg}".equals(cfg.unifiedPath));
+
+        cfg.unified = true;
+        cfg.unifiedPath = "SandboxSpace/{pkg}";
+
+        File propFile = new File(sdDir, "config.properties");
+        java.util.Properties p = new java.util.Properties();
+        p.setProperty("unified", "true");
+        p.setProperty("unifiedPath", "SandboxSpace/{pkg}");
+        FileOutputStream fos = new FileOutputStream(propFile);
+        try {
+            p.store(fos, "test");
+        } finally {
+            fos.close();
+        }
+
+        RedirectConfig loaded = RedirectConfig.read(propFile);
+        check("Loaded unified is true", loaded.unified);
+        check("Loaded unifiedPath is SandboxSpace/{pkg}", "SandboxSpace/{pkg}".equals(loaded.unifiedPath));
+
+        String pkg = "com.test.unified";
+        File container = RedirectConfig.resolve(sd, pkg, loaded.unifiedPath);
+        check("Container resolved correctly", container.getAbsolutePath().endsWith("SandboxSpace/" + pkg));
+
+        File internalRoot = new File(container, "data/data/" + pkg);
+        check("Internal mapped to container/data/data/<pkg>", internalRoot.getAbsolutePath().endsWith("SandboxSpace/" + pkg + "/data/data/" + pkg));
+
+        File externalData = new File(container, "Android/data/" + pkg);
+        check("External data mapped to container/Android/data/<pkg>", externalData.getAbsolutePath().endsWith("SandboxSpace/" + pkg + "/Android/data/" + pkg));
+
+        File externalObb = new File(container, "Android/obb/" + pkg);
+        check("External obb mapped to container/Android/obb/<pkg>", externalObb.getAbsolutePath().endsWith("SandboxSpace/" + pkg + "/Android/obb/" + pkg));
+
+        File dcim = new File(container, "DCIM");
+        check("DCIM mapped to container root", dcim.getAbsolutePath().endsWith("SandboxSpace/" + pkg + "/DCIM"));
     }
 
     private static void cleanupTree(File f) {

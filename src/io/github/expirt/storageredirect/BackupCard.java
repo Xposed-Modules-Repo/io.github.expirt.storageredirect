@@ -372,6 +372,29 @@ final class BackupCard {
     private List<Backups.Source> sources() {
         RedirectConfig rc = RedirectConfig.load(sd, pkg);
         List<Backups.Source> out = new ArrayList<Backups.Source>();
+        if (rc.unified) {
+            File cont = RedirectConfig.resolve(sd, pkg, rc.unifiedPath);
+            if (bc.internal) {
+                File d = new File(cont, "data/data/" + pkg);
+                if (d.isDirectory()) {
+                    java.util.Set<String> excluded = new java.util.HashSet<String>();
+                    if (!bc.internalFiles) excluded.add("files");
+                    if (!bc.internalDatabases) excluded.add("databases");
+                    if (!bc.internalSharedPrefs) excluded.add("shared_prefs");
+                    if (!bc.internalNoBackup) excluded.add("no_backup");
+                    if (!bc.internalCache) excluded.add("cache");
+                    out.add(new Backups.Source("internal", d, excluded));
+                }
+            }
+            if (bc.external) {
+                File d = new File(cont, "Android/data/" + pkg);
+                if (d.isDirectory()) out.add(new Backups.Source("external", d));
+            }
+            if (bc.storage) {
+                if (cont.isDirectory()) out.add(new Backups.Source("storage", cont));
+            }
+            return out;
+        }
         if (bc.internal) {
             File d = resolveFolder(rc.internalPath, "internal");
             if (d != null && d.isDirectory()) {
@@ -459,6 +482,12 @@ final class BackupCard {
     }
 
     private String currentPath(RedirectConfig rc, String kind) {
+        if (rc.unified) {
+            File cont = RedirectConfig.resolve(sd, pkg, rc.unifiedPath);
+            if ("internal".equals(kind)) return new File(cont, "data/data/" + pkg).getAbsolutePath();
+            if ("external".equals(kind)) return new File(cont, "Android/data/" + pkg).getAbsolutePath();
+            if ("storage".equals(kind)) return cont.getAbsolutePath();
+        }
         String p = "internal".equals(kind) ? rc.internalPath
                 : "external".equals(kind) ? rc.externalPath
                 : "storage".equals(kind) ? rc.storagePath : null;

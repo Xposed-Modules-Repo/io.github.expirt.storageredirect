@@ -21,6 +21,7 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,7 +34,7 @@ public class SettingsActivity extends Activity {
     public static final String EXTRA_PKG = "pkg";
 
     private static final int K_INTERNAL = 1, K_PREFS = 2, K_EXTERNAL = 3, K_STORAGE = 4, K_RAW = 5,
-            K_OVERRIDE = 6, K_FAKE = 7, K_DEBUG = 8;
+            K_OVERRIDE = 6, K_FAKE = 7, K_DEBUG = 8, K_UNIFIED = 9;
 
     private NeoUi ui;
     private String sd;
@@ -44,6 +45,8 @@ public class SettingsActivity extends Activity {
 
     private Switch prefsSwitch;
     private Switch rawSwitch;
+    private EditText unifiedEdit;
+    private TextView unifiedPreview;
     private final EditText[] pathEdits = new EditText[3];
     private final TextView[] resolved = new TextView[3];
     private EditText blockEdit;
@@ -217,6 +220,81 @@ public class SettingsActivity extends Activity {
             one.addView(ov.view);
             col.addView(one);
         }
+
+        // ---- Expandable Block: Unified Sandbox (One Container for Everything)
+        NeoUi.ExpandableBlock unifiedBlock = ui.expandableBlock("Unified Sandbox (Redirect Everything)", Phosphor.SHIELD_CHECKERED, true);
+        TextView uDesc = ui.text("Auto-redirects all app storage into one single container directory chosen by you. "
+                + "The app reads this container as /storage/emulated/0/. "
+                + "Contains data/data/<pkg> (internal), Android/data, Android/obb, and root folders (DCIM, Download, Pictures...) side-by-side. "
+                + "Native libraries (.so) and Superpack (.spo) are automatically kept in real storage for stability.",
+                12, ui.c.onSurfaceVariant, false);
+        uDesc.setLineSpacing(0, 1.15f);
+        uDesc.setPadding(0, 0, 0, ui.dp(8));
+        unifiedBlock.content.addView(uDesc);
+
+        List<View> uRows = new ArrayList<View>();
+        uRows.add(toggle("Enable Unified Sandbox", "Redirect all app data and storage into a single folder",
+                cfg.unified, K_UNIFIED, true).view);
+        unifiedBlock.content.addView(ui.group(uRows));
+
+        LinearLayout uFolderCard = ui.card(ui.c.surfaceContainerLow, 18f);
+        uFolderCard.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(12));
+        uFolderCard.addView(ui.text("Container Folder", 13, ui.c.onSurfaceVariant, true));
+
+        final EditText uFolderEdit = ui.field(cfg.unifiedPath, RedirectConfig.DEF_UNIFIED);
+        unifiedEdit = uFolderEdit;
+        uFolderEdit.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int c, int d) { }
+            @Override public void onTextChanged(CharSequence s, int a, int c, int d) { }
+            @Override public void afterTextChanged(Editable ed) {
+                if (building || !editable()) return;
+                String v = ed.toString().trim();
+                cfg.unifiedPath = v.isEmpty() ? RedirectConfig.DEF_UNIFIED : v;
+                persist();
+                updateUnifiedPreview();
+            }
+        });
+        controls.add(uFolderEdit);
+        uFolderCard.addView(uFolderEdit);
+
+        LinearLayout uBtnRow = ui.hbox();
+        uBtnRow.setPadding(0, ui.dp(8), 0, 0);
+        TextView btnBrowse = ui.buttonWithIcon("Browse Folders", Phosphor.FOLDER, NeoUi.TONAL, new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (!editable()) return;
+                FolderPicker.show(SettingsActivity.this, ui, cfg.unifiedPath, new FolderPicker.OnFolderSelectedListener() {
+                    @Override public void onFolderSelected(String path) {
+                        uFolderEdit.setText(path);
+                        cfg.unifiedPath = path;
+                        persist();
+                        updateUnifiedPreview();
+                    }
+                });
+            }
+        });
+        TextView btnPreset = ui.buttonWithIcon("Default", Phosphor.RESTORE, NeoUi.TEXT, new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (!editable()) return;
+                uFolderEdit.setText(RedirectConfig.DEF_UNIFIED);
+                cfg.unifiedPath = RedirectConfig.DEF_UNIFIED;
+                persist();
+                updateUnifiedPreview();
+            }
+        });
+        uBtnRow.addView(btnBrowse);
+        uBtnRow.addView(btnPreset);
+        controls.add(btnBrowse);
+        controls.add(btnPreset);
+        uFolderCard.addView(uBtnRow);
+
+        unifiedPreview = ui.text("", 11, ui.c.primary, false);
+        unifiedPreview.setLineSpacing(0, 1.2f);
+        unifiedPreview.setPadding(ui.dp(4), ui.dp(8), 0, 0);
+        uFolderCard.addView(unifiedPreview);
+
+        unifiedBlock.content.addView(uFolderCard);
+        col.addView(unifiedBlock.root);
+        updateUnifiedPreview();
 
         // ---- Expandable Block: What to redirect
         NeoUi.ExpandableBlock redirectBlock = ui.expandableBlock("What to redirect", Phosphor.SLIDERS, true);
@@ -395,9 +473,11 @@ public class SettingsActivity extends Activity {
                     case K_RAW: cfg.rawPaths = on; break;
                     case K_FAKE: cfg.fakePaths = on; break;
                     case K_DEBUG: cfg.debug = on; break;
+                    case K_UNIFIED: cfg.unified = on; break;
                 }
                 persist();
                 updatePathInfo();
+                updateUnifiedPreview();
                 applyEnabled();
             }
         });
@@ -618,21 +698,40 @@ public class SettingsActivity extends Activity {
             v.setEnabled(ed);
             v.setAlpha(ed ? 1f : 0.4f);
         }
+        if (unifiedEdit != null && ed) {
+            unifiedEdit.setEnabled(cfg.unified);
+            unifiedEdit.setAlpha(cfg.unified ? 1f : 0.4f);
+        }
         boolean[] on = {cfg.internal, cfg.external, cfg.storage};
         for (int i = 0; i < 3; i++) {
             if (pathEdits[i] == null) continue;
-            boolean en = ed && on[i];
+            boolean en = ed && on[i] && !cfg.unified;
             pathEdits[i].setEnabled(en);
             pathEdits[i].setAlpha(en ? 1f : 0.4f);
         }
         if (prefsSwitch != null && ed) {
-            prefsSwitch.setEnabled(cfg.internal);
-            prefsSwitch.setAlpha(cfg.internal ? 1f : 0.4f);
+            boolean en = cfg.internal && !cfg.unified;
+            prefsSwitch.setEnabled(en);
+            prefsSwitch.setAlpha(en ? 1f : 0.4f);
         }
         if (rawSwitch != null && ed) {
-            rawSwitch.setEnabled(!cfg.fakePaths);
-            rawSwitch.setAlpha(cfg.fakePaths ? 0.4f : 1f);
+            boolean en = !cfg.fakePaths && !cfg.unified;
+            rawSwitch.setEnabled(en);
+            rawSwitch.setAlpha(en ? 1f : 0.4f);
         }
+    }
+
+    private void updateUnifiedPreview() {
+        if (unifiedPreview == null) return;
+        File cont = RedirectConfig.resolve(sd, pkg, cfg.unifiedPath);
+        String contPath = cont.getAbsolutePath();
+        String p = (pkg != null ? pkg : "{pkg}");
+        unifiedPreview.setText("Layout Preview inside Container:\n"
+                + "\u2022 /storage/emulated/0/ \u2192 " + contPath + "/\n"
+                + "\u2022 /data/data/<pkg> \u2192 " + contPath + "/data/data/" + p + "/\n"
+                + "\u2022 /Android/data/<pkg> \u2192 " + contPath + "/Android/data/" + p + "/\n"
+                + "\u2022 /Android/obb/<pkg> \u2192 " + contPath + "/Android/obb/" + p + "/\n"
+                + "\u2022 DCIM, Download, Pictures... \u2192 " + contPath + "/(root)");
     }
 
     private void updatePathInfo() {
@@ -643,7 +742,7 @@ public class SettingsActivity extends Activity {
             abs[i] = RedirectConfig.resolve(sd, pkg, paths[i]).getAbsolutePath();
             resolved[i].setText((cfg.fakePaths ? "real folder \u2192 " : "\u2192 ") + abs[i]);
         }
-        boolean clash = cfg.internal && cfg.external && abs[0].equals(abs[1]);
+        boolean clash = !cfg.unified && cfg.internal && cfg.external && abs[0].equals(abs[1]);
         warnText.setText("Internal and external use the same folder \u2014 their files and cache would be mixed.");
         warnCard.setVisibility(clash ? View.VISIBLE : View.GONE);
     }

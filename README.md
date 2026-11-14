@@ -17,13 +17,14 @@ Each app can have its **own settings** (open the app in the module's list and tu
 
 | Switch | Redirects |
 |---|---|
+| Unified Sandbox | Auto-redirects all storage into one container folder chosen by user (`Containers/{pkg}` or custom). Reads container as `/storage/emulated/0/` |
 | Internal data | `/data/data/<pkg>`: `getFilesDir`, `getCacheDir`, `getDir`, `getDatabasePath`, no_backup |
 | SharedPreferences | `shared_prefs` (needs Internal data) |
 | App external data | `/Android/data/<pkg>` and `/Android/obb/<pkg>` |
 | Main storage | `/storage/emulated/0` becomes a private virtual sdcard per app |
 | Hardcoded paths | Rewrites raw `/data/data/...`, `/sdcard/...` strings in `File(String)` |
 
-`getCodeCacheDir`, `webview`, native library directories (`lib`, `libs`, `app_libs`), and LSPatch origin APKs/caches (`/cache/lspatch`, `/files/lspatch`, `/lspatch`, and any `.apk` inside private storage) are deliberately protected in real private storage so Android's `noexec` shared storage restriction and dynamic loaders (such as Facebook SoLoader / WhatsAppLibLoader) never fail.
+`getCodeCacheDir`, `webview`, native library directories (`lib`, `libs`, `app_libs`), Meta Superpack archives (`.spo`, `decompressed/libs.spo`), and LSPatch origin APKs/caches (`/cache/lspatch`, `/files/lspatch`, `/lspatch`, and any `.apk` inside private storage) are deliberately protected in real private storage so Android's `noexec` shared storage restriction and dynamic loaders (such as Facebook SoLoader / WhatsAppLibLoader) never fail.
 
 ## Look and feel — ViviMusic & Material 3 Expressive Design
 
@@ -96,9 +97,19 @@ Open an app's settings -> **Backups** (or the global **Backups** tab in the main
 - **Clean Restore:** Supports deleting existing folder contents prior to extraction or in-place overwrite.
 - **Compression:** Normal / Maximum / Fast / None (store only).
 
+## Unified Sandbox (Auto-Redirect Everything into One Directory)
+
+A single toggle that auto-redirects all storage categories into one main folder chosen by the user (`Containers/{pkg}` by default, or any custom path/folder name selected via the built-in Folder Browser):
+- **Virtual Storage Root:** The app reads this container folder as `/storage/emulated/0/`.
+- **Internal Private Storage:** Automatically maps `/data/data/<pkg>` and `/data/user/0/<pkg>` into `<container>/data/data/<pkg>/` (`files`, `databases`, `shared_prefs`, `no_backup`, `cache`).
+- **External App Storage:** Automatically maps `/storage/emulated/0/Android/data/<pkg>` and `/Android/obb/<pkg>` into `<container>/Android/data/<pkg>` and `<container>/Android/obb/<pkg>`.
+- **Shared Storage Folders:** Root media and document folders (`DCIM/`, `Download/`, `Pictures/`, `Documents/`, etc.) land directly inside `<container>/`.
+- **Native Library & Linker Protection:** Native `.so` libraries, Meta Superpack `.spo` archives, runtime decompressed native modules (`decompressed/libs.spo`), `code_cache`, `lib`, and LSPatch origin APKs remain strictly protected in real internal storage (`/data/user/0/<pkg>/...`), ensuring Android 14 `clns` dynamic linker namespaces and Linux `noexec` never fail.
+- **Built-in Folder Picker:** Interactive directory browser allows navigating storage, creating subfolders, and selecting container destinations without typing raw paths.
+
 ## Use
 
-1. Install `release/StorageRedirect-v2.22.apk`, open it, grant all-files access, configure defaults and/or per-app rules.
+1. Install `release/StorageRedirect-v2.23.apk`, open it, grant all-files access, configure defaults and/or per-app rules.
 2. Patch the target app with LSPatch and embed this module.
 3. The **target app** needs all-files access (`MANAGE_EXTERNAL_STORAGE`, Android 11+).
 4. Rules and overrides take effect immediately with live reload.
@@ -111,7 +122,7 @@ Open an app's settings -> **Backups** (or the global **Backups** tab in the main
 
 # Build APK:
 export KEYSTORE_PASS="your_password"
-./build.sh        # -> Builds signed release/StorageRedirect-v2.22.apk
+./build.sh        # -> Builds signed release/StorageRedirect-v2.23.apk
 ```
 
 ## Security Architecture

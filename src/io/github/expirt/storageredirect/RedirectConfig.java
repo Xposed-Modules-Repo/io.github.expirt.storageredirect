@@ -49,16 +49,19 @@ final class RedirectConfig {
     boolean rawPaths = false;    // rewrite hardcoded path strings
     boolean fakePaths = false;   // the app keeps seeing the standard paths; I/O is redirected underneath
     boolean debug = false;       // detailed diagnostic logging to logcat
+    boolean unified = false;     // Unified sandbox: redirects all data, obb, internal, and storage into one directory
 
     static final String DEF_INTERNAL = "CustomData/{pkg}/internal";
     static final String DEF_EXTERNAL = "CustomData/{pkg}/external";
     static final String DEF_STORAGE = "CustomData/{pkg}/storage";
+    static final String DEF_UNIFIED = "Containers/{pkg}";
 
     // Destination folder of each redirect. Absolute, or relative to the storage root.
     // "{pkg}" is replaced by the app's package name.
     String internalPath = DEF_INTERNAL;
     String externalPath = DEF_EXTERNAL;
     String storagePath = DEF_STORAGE;
+    String unifiedPath = DEF_UNIFIED;
 
     // Paths that may never be created (one per line). Absolute, or relative to the storage root;
     // "{pkg}" is replaced by the app's package name. Exact match on the whole path.
@@ -701,9 +704,11 @@ final class RedirectConfig {
         c.rawPaths = rawPaths;
         c.fakePaths = fakePaths;
         c.debug = debug;
+        c.unified = unified;
         c.internalPath = internalPath;
         c.externalPath = externalPath;
         c.storagePath = storagePath;
+        c.unifiedPath = unifiedPath;
         c.blockPaths = blockPaths;
         c.pathRules = pathRules;
         c.excludePaths = excludePaths;
@@ -727,6 +732,7 @@ final class RedirectConfig {
             c.rawPaths = bool(p, "rawPaths", c.rawPaths);
             c.fakePaths = bool(p, "fakePaths", c.fakePaths);
             c.debug = bool(p, "debug", c.debug);
+            c.unified = bool(p, "unified", c.unified);
             // legacy single "root" key (v2.0/v2.1)
             String r = p.getProperty("root");
             if (r != null && r.trim().length() > 0) {
@@ -738,6 +744,7 @@ final class RedirectConfig {
             c.internalPath = str(p, "internalPath", c.internalPath);
             c.externalPath = str(p, "externalPath", c.externalPath);
             c.storagePath = str(p, "storagePath", c.storagePath);
+            c.unifiedPath = str(p, "unifiedPath", c.unifiedPath);
             // v2.9 stored plain names under "blockNames"; names are no longer supported, so that
             // key is ignored.
             String bp = p.getProperty("blockPaths");
@@ -773,9 +780,11 @@ final class RedirectConfig {
             p.setProperty("rawPaths", String.valueOf(rawPaths));
             p.setProperty("fakePaths", String.valueOf(fakePaths));
             p.setProperty("debug", String.valueOf(debug));
+            p.setProperty("unified", String.valueOf(unified));
             p.setProperty("internalPath", internalPath);
             p.setProperty("externalPath", externalPath);
             p.setProperty("storagePath", storagePath);
+            p.setProperty("unifiedPath", unifiedPath);
             p.setProperty("blockPaths", blockPaths);
             p.setProperty("pathRules", pathRules);
             p.setProperty("excludePaths", excludePaths);

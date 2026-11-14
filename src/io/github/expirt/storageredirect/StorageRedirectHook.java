@@ -291,14 +291,33 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
     private static ActiveState buildActiveState(Context ctx, String sd, String pkg, String dataDir,
                                                 File targetFile, boolean hasOverride, long mtime) {
         RedirectConfig cfg = RedirectConfig.read(targetFile);
-        boolean anyRedirect = cfg.internal || cfg.external || cfg.storage;
+        if (cfg.unified) {
+            cfg.internal = true;
+            cfg.prefs = true;
+            cfg.external = true;
+            cfg.storage = true;
+            cfg.rawPaths = true;
+            cfg.fakePaths = true;
+        }
+        boolean anyRedirect = cfg.internal || cfg.external || cfg.storage || cfg.unified;
         List<String> blockEntries = cfg.blockList();
         List<String[]> ruleEntries = cfg.ruleList();
         boolean active = anyRedirect || !blockEntries.isEmpty() || !ruleEntries.isEmpty();
 
-        File internalRoot = RedirectConfig.resolve(sd, pkg, cfg.internalPath);
-        File externalRoot = RedirectConfig.resolve(sd, pkg, cfg.externalPath);
-        File storageRoot = RedirectConfig.resolve(sd, pkg, cfg.storagePath);
+        File internalRoot;
+        File externalRoot;
+        File storageRoot;
+
+        if (cfg.unified) {
+            File containerRoot = RedirectConfig.resolve(sd, pkg, cfg.unifiedPath);
+            storageRoot = containerRoot;
+            internalRoot = new File(containerRoot, "data/data/" + pkg);
+            externalRoot = new File(containerRoot, "Android/data/" + pkg);
+        } else {
+            internalRoot = RedirectConfig.resolve(sd, pkg, cfg.internalPath);
+            externalRoot = RedirectConfig.resolve(sd, pkg, cfg.externalPath);
+            storageRoot = RedirectConfig.resolve(sd, pkg, cfg.storagePath);
+        }
         String[] own = new String[]{internalRoot.getAbsolutePath(), externalRoot.getAbsolutePath(),
                 storageRoot.getAbsolutePath()};
 
@@ -338,6 +357,21 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
     private static void initFolders(ActiveState state) {
         if (state == null || !state.active) return;
         try {
+            if (state.config.unified) {
+                ensure(state.storageRoot);
+                ensure(state.internalRoot);
+                ensure(state.externalRoot);
+                ensure(new File(state.storageRoot, "Android/obb/" + sPkg));
+                for (String n : new String[]{"files", "cache", "databases", "shared_prefs", "no_backup"}) {
+                    File d = new File(state.internalRoot, n);
+                    if (!isBlocked(state, d.getPath())) ensure(d);
+                }
+                File files = new File(state.externalRoot, "files");
+                File cache = new File(state.externalRoot, "cache");
+                if (!isBlocked(state, files.getPath())) ensure(files);
+                if (!isBlocked(state, cache.getPath())) ensure(cache);
+                return;
+            }
             if (state.config.internal) {
                 for (String n : new String[]{"files", "cache", "databases", "shared_prefs", "no_backup"}) {
                     File d = new File(state.internalRoot, n);
@@ -443,9 +477,15 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
                 return new File(state.externalRoot, "cache");
             case OBB:
                 if (!state.config.external) return null;
+                if (state.config.unified) {
+                    return new File(state.storageRoot, "Android/obb/" + sPkg);
+                }
                 return new File(state.externalRoot, "obb");
             case MEDIA:
                 if (!state.config.external) return null;
+                if (state.config.unified) {
+                    return new File(state.storageRoot, "Android/media/" + sPkg);
+                }
                 return new File(state.externalRoot, "media");
             case ENV_DATA:
                 if (state.fake || !state.config.external) return null;
@@ -458,9 +498,17 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
                 return envDir(state, a0, p, "cache");
             case ENV_OBB:
                 if (state.fake || !state.config.external) return null;
+                if (state.config.unified) {
+                    if (p.args.length != 1 || !sPkg.equals(a0)) return null;
+                    return new File(state.storageRoot, "Android/obb/" + sPkg);
+                }
                 return envDir(state, a0, p, "obb");
             case ENV_MEDIA:
                 if (state.fake || !state.config.external) return null;
+                if (state.config.unified) {
+                    if (p.args.length != 1 || !sPkg.equals(a0)) return null;
+                    return new File(state.storageRoot, "Android/media/" + sPkg);
+                }
                 return envDir(state, a0, p, "media");
             case STORAGE_ROOT:
                 if (state.fake || !state.config.storage) return null;
@@ -541,13 +589,38 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
     // ------------------------------------------- standard path -> real (rewrite table)
     private static RewriteTable buildRewriteTable(RedirectConfig cfg, File internalRoot, File externalRoot,
                                                   File storageRoot, String sd, String pkg, String dataDir) {
-        boolean layer = (cfg.internal || cfg.external || cfg.storage) && (cfg.fakePaths || cfg.rawPaths || cfg.storage);
+        boolean layer = (cfg.internal || cfg.external || cfg.storage || cfg.unified)
+                && (cfg.fakePaths || cfg.rawPaths || cfg.storage || cfg.unified);
         if (!layer) {
             return new RewriteTable(new String[0], new String[0], new int[0]);
         }
         List<String> from = new ArrayList<>();
         List<String> to = new ArrayList<>();
         List<Integer> kinds = new ArrayList<>();
+
+        if (cfg.unified) {
+            String in = internalRoot.getAbsolutePath();
+            String ex = externalRoot.getAbsolutePath();
+            String extObb = new File(storageRoot, "Android/obb/" + pkg).getAbsolutePath();
+            String st = storageRoot.getAbsolutePath();
+
+            add(from, to, kinds, "/data/data/" + pkg, in, K_INT);
+            add(from, to, kinds, "/data/user/0/" + pkg, in, K_INT);
+            if (dataDir != null) add(from, to, kinds, dataDir, in, K_INT);
+
+            String[] roots = {sd, "/sdcard", "/storage/emulated/0", "/storage/self/primary", "/mnt/sdcard"};
+            for (String r : roots) {
+                add(from, to, kinds, r + "/Android/data/" + pkg, ex, K_EXT);
+                add(from, to, kinds, r + "/Android/obb/" + pkg, extObb, K_EXT);
+            }
+            for (String r : roots) {
+                add(from, to, kinds, r, st, K_STO);
+            }
+            int[] k = new int[kinds.size()];
+            for (int i = 0; i < k.length; i++) k[i] = kinds.get(i);
+            return new RewriteTable(from.toArray(new String[0]), to.toArray(new String[0]), k);
+        }
+
         String in = internalRoot.getAbsolutePath();
         String ex = externalRoot.getAbsolutePath();
 
