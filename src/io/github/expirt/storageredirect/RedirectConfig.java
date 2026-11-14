@@ -44,16 +44,16 @@ final class RedirectConfig {
 
     boolean internal = false;    // /data/data/<pkg> - default off to protect hooked apps on startup
     boolean prefs = true;        // shared_prefs (only meaningful with internal)
-    boolean external = true;     // /Android/data/<pkg> + /Android/obb/<pkg>
+    boolean external = false;    // /Android/data/<pkg> + /Android/obb/<pkg> - default off to prevent phantom folders
     boolean storage = false;     // main storage /storage/emulated/0 (virtual sdcard per app)
     boolean rawPaths = false;    // rewrite hardcoded path strings
     boolean fakePaths = false;   // the app keeps seeing the standard paths; I/O is redirected underneath
     boolean debug = false;       // detailed diagnostic logging to logcat
     boolean unified = false;     // Unified sandbox: redirects all data, obb, internal, and storage into one directory
 
-    static final String DEF_INTERNAL = "CustomData/{pkg}/internal";
-    static final String DEF_EXTERNAL = "CustomData/{pkg}/external";
-    static final String DEF_STORAGE = "CustomData/{pkg}/storage";
+    static final String DEF_INTERNAL = "Containers/{pkg}/data/data/{pkg}";
+    static final String DEF_EXTERNAL = "Containers/{pkg}/Android/data/{pkg}";
+    static final String DEF_STORAGE = "Containers/{pkg}";
     static final String DEF_UNIFIED = "Containers/{pkg}";
 
     // Destination folder of each redirect. Absolute, or relative to the storage root.
@@ -329,6 +329,8 @@ final class RedirectConfig {
             } catch (Throwable ignored) {
             }
         }
+
+        cleanupEmptyTree(new File(sd, "CustomData"));
 
         return fixedRoot;
     }
@@ -626,6 +628,36 @@ final class RedirectConfig {
         f.delete();
     }
 
+    /**
+     * Recursively deletes empty directories in a directory hierarchy.
+     * Leaves files and non-empty parent directories intact. Safe against symlink escapes.
+     */
+    public static void cleanupEmptyTree(File dir) {
+        if (dir == null || !dir.exists() || !dir.isDirectory() || isSymbolicLink(dir)) return;
+        File[] fs = dir.listFiles();
+        if (fs != null) {
+            try {
+                String dCanonical = dir.getCanonicalPath();
+                for (File c : fs) {
+                    if (c.isDirectory()) {
+                        String cCanonical = c.getCanonicalPath();
+                        if (cCanonical.startsWith(dCanonical + File.separator)) {
+                            cleanupEmptyTree(c);
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+                for (File c : fs) {
+                    if (c.isDirectory()) cleanupEmptyTree(c);
+                }
+            }
+            fs = dir.listFiles();
+        }
+        if (fs == null || fs.length == 0) {
+            dir.delete();
+        }
+    }
+
     /** pkg == null -> the global defaults file. Checks config.properties first, then redirect.properties. */
     static File file(Context ctx, String sd, String pkg) {
         File d = resolveConfigRoot(ctx, sd);
@@ -811,6 +843,7 @@ final class RedirectConfig {
             }
             File loosePtr = new File(sd, "CustomData/.config-location");
             if (loosePtr.exists()) loosePtr.delete();
+            cleanupEmptyTree(new File(sd, "CustomData"));
 
             return true;
         } catch (Throwable t) {

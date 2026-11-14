@@ -606,7 +606,7 @@ public class SettingsActivity extends Activity {
             card.addView(from);
 
             card.addView(smallLabel("Redirect to path", 10));
-            final EditText to = ui.field(pr[1], "CustomData/{pkg}/downloads or /full/path");
+            final EditText to = ui.field(pr[1], "Containers/{pkg}/downloads or /full/path");
             card.addView(to);
 
             final TextView warn = ui.text("", 11, ui.c.onSurfaceVariant, false);

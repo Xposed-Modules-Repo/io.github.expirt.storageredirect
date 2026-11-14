@@ -6,7 +6,7 @@ millisecond instead of the default paths.
 
 It is generic: it redirects whichever app it is embedded in / scoped to (no hardcoded package).
 Each redirect has its own fully customizable destination folder (absolute, or relative to `/sdcard`;
-`{pkg}` = package name). Defaults: `CustomData/{pkg}/internal`, `.../external`, `.../storage`.
+`{pkg}` = package name). Defaults: `Containers/{pkg}/data/data/{pkg}`, `Containers/{pkg}/Android/data/{pkg}`, `Containers/{pkg}`.
 Inside a destination the app keeps its usual sub-folders (`files`, `cache`, `databases`, ...).
 Don't point internal and external at the same folder: their `files`/`cache` would mix (the UI warns).
 
@@ -24,7 +24,7 @@ Each app can have its **own settings** (open the app in the module's list and tu
 | Main storage | `/storage/emulated/0` becomes a private virtual sdcard per app |
 | Hardcoded paths | Rewrites raw `/data/data/...`, `/sdcard/...` strings in `File(String)` |
 
-`getCodeCacheDir`, `webview`, native library directories (`lib`, `libs`, `app_libs`), Meta Superpack archives (`.spo`, `decompressed/libs.spo`), and LSPatch origin APKs/caches (`/cache/lspatch`, `/files/lspatch`, `/lspatch`, and any `.apk` inside private storage) are deliberately protected in real private storage so Android's `noexec` shared storage restriction and dynamic loaders (such as Facebook SoLoader / WhatsAppLibLoader) never fail.
+`getCodeCacheDir`, `webview`, native library directories (`lib`, `libs`, `app_libs`), Meta Superpack archives (`.spo`, `decompressed/libs.spo`), and LSPatch origin APKs/caches (`/cache/lspatch`, `/files/lspatch`, `/lspatch`, `/app_lspatch`, and any `.apk` inside private storage) are deliberately protected in real private storage so Android's `noexec` shared storage restriction and dynamic loaders (such as Facebook SoLoader / WhatsAppLibLoader) never fail.
 
 ## Look and feel — ViviMusic & Material 3 Expressive Design
 

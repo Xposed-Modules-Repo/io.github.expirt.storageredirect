@@ -45,7 +45,7 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
     /** Sub-paths of the private data dir that are never redirected (dex/odex, native libs, LSPatch origin APKs). */
     private static final String[] KEEP_PRIVATE_SUBPATHS = {
             "/code_cache", "/app_webview", "/lib", "/app_libs", "/app_lib",
-            "/cache/lspatch", "/files/lspatch", "/lspatch",
+            "/cache/lspatch", "/files/lspatch", "/lspatch", "/app_lspatch",
             "/files/decompressed", "/decompressed"
     };
     private static final String TAG = "[StorageRedirect] ";
@@ -273,6 +273,18 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
             }
 
             ActiveState newState = buildActiveState(ctx, sSd, sPkg, sDataDir, targetFile, hasOverride, mtime);
+            if (current != null) {
+                if (current.storageRoot != null && !current.storageRoot.equals(newState.storageRoot)) {
+                    RedirectConfig.cleanupEmptyTree(current.storageRoot);
+                }
+                if (current.internalRoot != null && !current.internalRoot.equals(newState.internalRoot)) {
+                    RedirectConfig.cleanupEmptyTree(current.internalRoot);
+                }
+                if (current.externalRoot != null && !current.externalRoot.equals(newState.externalRoot)) {
+                    RedirectConfig.cleanupEmptyTree(current.externalRoot);
+                }
+            }
+            RedirectConfig.cleanupEmptyTree(new File(sSd, "CustomData"));
             sState = newState;
             initFolders(newState);
             if (newState.debug) {
@@ -359,33 +371,16 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
         try {
             if (state.config.unified) {
                 ensure(state.storageRoot);
-                ensure(state.internalRoot);
-                ensure(state.externalRoot);
-                ensure(new File(state.storageRoot, "Android/obb/" + sPkg));
-                for (String n : new String[]{"files", "cache", "databases", "shared_prefs", "no_backup"}) {
-                    File d = new File(state.internalRoot, n);
-                    if (!isBlocked(state, d.getPath())) ensure(d);
-                }
-                File files = new File(state.externalRoot, "files");
-                File cache = new File(state.externalRoot, "cache");
-                if (!isBlocked(state, files.getPath())) ensure(files);
-                if (!isBlocked(state, cache.getPath())) ensure(cache);
                 return;
-            }
-            if (state.config.internal) {
-                for (String n : new String[]{"files", "cache", "databases", "shared_prefs", "no_backup"}) {
-                    File d = new File(state.internalRoot, n);
-                    if (!isBlocked(state, d.getPath())) ensure(d);
-                }
-            }
-            if (state.config.external) {
-                File files = new File(state.externalRoot, "files");
-                File cache = new File(state.externalRoot, "cache");
-                if (!isBlocked(state, files.getPath())) ensure(files);
-                if (!isBlocked(state, cache.getPath())) ensure(cache);
             }
             if (state.config.storage) {
                 ensure(state.storageRoot);
+            }
+            if (state.config.internal) {
+                ensure(state.internalRoot);
+            }
+            if (state.config.external) {
+                ensure(state.externalRoot);
             }
         } catch (Throwable t) {
             if (state.debug) XposedBridge.log(TAG + "Error initializing folders on reload: " + t);
@@ -488,33 +483,33 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
                 }
                 return new File(state.externalRoot, "media");
             case ENV_DATA:
-                if (state.fake || !state.config.external) return null;
+                if (!state.config.external) return null;
                 return envDir(state, a0, p, null);
             case ENV_FILES:
-                if (state.fake || !state.config.external) return null;
+                if (!state.config.external) return null;
                 return envDir(state, a0, p, "files");
             case ENV_CACHE:
-                if (state.fake || !state.config.external) return null;
+                if (!state.config.external) return null;
                 return envDir(state, a0, p, "cache");
             case ENV_OBB:
-                if (state.fake || !state.config.external) return null;
+                if (!state.config.external) return null;
                 if (state.config.unified) {
                     if (p.args.length != 1 || !sPkg.equals(a0)) return null;
                     return new File(state.storageRoot, "Android/obb/" + sPkg);
                 }
                 return envDir(state, a0, p, "obb");
             case ENV_MEDIA:
-                if (state.fake || !state.config.external) return null;
+                if (!state.config.external) return null;
                 if (state.config.unified) {
                     if (p.args.length != 1 || !sPkg.equals(a0)) return null;
                     return new File(state.storageRoot, "Android/media/" + sPkg);
                 }
                 return envDir(state, a0, p, "media");
             case STORAGE_ROOT:
-                if (state.fake || !state.config.storage) return null;
+                if (!state.config.storage) return null;
                 return state.storageRoot;
             case STORAGE_PUBLIC: {
-                if (state.fake || !state.config.storage) return null;
+                if (!state.config.storage) return null;
                 String t = (String) a0;
                 return (t == null || t.isEmpty()) ? state.storageRoot : new File(state.storageRoot, t);
             }
@@ -679,7 +674,7 @@ public class StorageRedirectHook implements IXposedHookLoadPackage {
         if (rest.contains("/decompressed") || rest.endsWith(".so") || rest.contains(".so/")
                 || rest.contains(".so.") || rest.endsWith(".spo") || rest.contains(".spo/")
                 || rest.contains("/lib-") || rest.contains("/lib/") || rest.endsWith("/lib")
-                || rest.contains("/app_lib") || rest.contains("/lspatch")
+                || rest.contains("/app_lib") || rest.contains("lspatch")
                 || rest.endsWith(".apk") || rest.contains(".apk/")) {
             return true;
         }
